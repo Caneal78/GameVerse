@@ -1,0 +1,76 @@
+{
+  "name": "gameverse",
+  "version": "1.0.0",
+  "description": "AI-Assisted Game Development Database + World Bible + Asset Management System",
+  "main": "electron/main.js",
+  "author": "GameVerse",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev:vite": "vite",
+    "dev:electron": "cross-env NODE_ENV=development electron .",
+    "dev": "node ./scripts/dev.js",
+    "build": "vite build",
+    "start": "cross-env NODE_ENV=production electron .",
+    "test": "node test_backend.js",
+    "test:frontend": "vitest run",
+    "test:all": "npm test && npm run test:frontend",
+    "dist": "npm run build && electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "better-sqlite3": "^11.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "three": "^0.185.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "@testing-library/react": "^16.3.0",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^31.4.0",
+    "electron-builder": "^24.13.3",
+    "electron-icon-builder": "^2.0.1",
+    "sharp": "^0.35.3",
+    "vite": "^5.4.6",
+    "vitest": "^3.2.4",
+    "jsdom": "^26.1.0",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.gameverse.app",
+    "productName": "GameVerse",
+    "icon": "build/icon.png",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "README.md",
+      "USER_GUIDE.md",
+      "SECURITY.md",
+      "COPYRIGHT.md",
+      "LICENSE"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

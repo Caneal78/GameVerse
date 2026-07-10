@@ -1,0 +1,23 @@
+node_modules/
+dist/
+outputs/
+.browser_data/
+.psiphon_data/
+.agent_hooks/
+.agents/
+
+# Local databases and vault artifacts
+*.db
+*.db-shm
+*.db-wal
+
+# OS and editor junk
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+memory.md
+
+# Test artifacts
+coverage/

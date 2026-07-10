@@ -1,0 +1,96 @@
+.wb-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.wb-category-bar {
+  display: flex;
+  gap: 6px;
+  padding: 18px 28px 14px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.wb-cat-btn {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wb-cat-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.wb-cat-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.wb-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.wb-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.wb-page-item {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.wb-page-item:hover {
+  background: var(--bg-2);
+  color: var(--text-primary);
+}
+.wb-page-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 600;
+}
+
+.wb-editor {
+  flex: 1;
+  padding: 24px 32px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-title-input {
+  font-size: 22px;
+  font-weight: 700;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  border-radius: 0;
+}
+.wb-title-input:focus {
+  border-color: var(--accent);
+}
+
+.wb-body-textarea {
+  flex: 1;
+  min-height: 300px;
+  line-height: 1.7;
+  font-size: 14px;
+}
