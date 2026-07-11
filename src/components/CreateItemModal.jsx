@@ -50,21 +50,45 @@ export default function CreateItemModal({ defaultCategory, onClose, onCreated })
       return;
     }
     setBusy(true);
+    // Ensure a project is loaded before attempting to create an item
+    try {
+      const current = await window.gameverse.project.current();
+      if (!current) {
+        showToast('No project is currently open. Please create or open a project first.', 'error');
+        setBusy(false);
+        return;
+      }
+    } catch (projErr) {
+      console.error('Project check failed:', projErr);
+      showToast('Failed to verify project state.', 'error');
+      setBusy(false);
+      return;
+    }
     try {
       const tags = tagsText
         .split(',')
         .map((t) => t.trim())
         .filter(Boolean);
-      const item = await window.gameverse.items.create({
+
+      const payload = {
         name: name.trim(),
-        category,
+        category: category || 'Misc', // fallback category
         status,
-        tags
-      });
-      showToast(`${category} "${item.name}" created.`, 'success');
+        tags,
+      };
+      const item = await window.gameverse.items.create(payload);
+      if (!item) {
+        showToast('Failed to create item (no response).', 'error');
+        return;
+      }
+      showToast(item.name + ' created.', 'success');
       onCreated && onCreated(item);
       onClose();
-      navigate(`/item/${item.id}`);
+      if (item.id) {
+        navigate(`/item/${item.id}`);
+      } else {
+        showToast('Created item but missing ID.', 'warning');
+      }
     } catch (e) {
       showToast(e.message || 'Failed to create item', 'error');
     } finally {

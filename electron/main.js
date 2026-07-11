@@ -430,8 +430,15 @@ ipcMain.handle("items:get", (event, id) => {
  * @returns {Object} Created item
  */
 ipcMain.handle("items:create", (event, payload) => {
+  // Validate payload
+  if (!payload || typeof payload.name !== "string" || !payload.name.trim()) {
+    throw new Error("Invalid payload: name is required");
+  }
   const { db } = requireProject();
-  return itemRepo.createItem(db, payload);
+console.log('items:create payload:', payload);
+const result = itemRepo.createItem(db, payload);
+console.log('items:create result:', result);
+return result;
 });
 
 /**

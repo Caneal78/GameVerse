@@ -9,9 +9,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const Database = require('better-sqlite3');
+const { getDB } = require('../../src/data/lowdb');
 const { v4: uuidv4 } = require('uuid');
-const { SCHEMA_SQL, DEFAULT_TEMPLATES } = require('./schema');
+const { DEFAULT_TEMPLATES } = require('./schema');
 
 /**
  * Standard folder structure for a GameVerse project vault
@@ -76,23 +76,27 @@ function createProject(parentDir, projectName) {
     fs.mkdirSync(path.join(projectPath, folder), { recursive: true });
   }
 
-  const dbPath = path.join(projectPath, 'GameVerse.db');
-  const db = new Database(dbPath);
-  db.exec(SCHEMA_SQL);
+  const dbPath = path.join(projectPath, 'GameVerse.db.json');
+  const db = getDB(projectPath);
 
   const now = new Date().toISOString();
-  const insertMeta = db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
-  insertMeta.run('project_name', projectName);
-  insertMeta.run('created_at', now);
-  insertMeta.run('gameverse_version', '1.0.0');
+  // Initialize meta data
+  db.data.meta = {
+    project_name: projectName,
+    created_at: now,
+    gameverse_version: '1.0.0'
+  };
 
-  const insertTemplate = db.prepare('INSERT INTO templates (id, category, fields_json) VALUES (?, ?, ?)');
+  // Initialize templates
+  db.data.templates = [];
   for (const tpl of DEFAULT_TEMPLATES) {
-    insertTemplate.run(uuidv4(), tpl.category, JSON.stringify(tpl.fields));
+    db.data.templates.push({
+      id: uuidv4(),
+      category: tpl.category,
+      fields_json: JSON.stringify(tpl.fields)
+    });
   }
-
-  db.close();
-
+  db.write();
   return { projectPath, dbPath, projectName };
 }
 
@@ -107,33 +111,34 @@ function createProject(parentDir, projectName) {
  */
 function openProject(targetPath) {
   let projectPath = targetPath;
-  let dbPath;
 
-  const stat = fs.statSync(targetPath);
-  if (stat.isDirectory()) {
-    dbPath = path.join(targetPath, 'GameVerse.db');
-  } else {
-    dbPath = targetPath;
+  // Determine project folder
+  if (!fs.statSync(targetPath).isDirectory()) {
     projectPath = path.dirname(targetPath);
   }
-
+  
+  // Path to lowdb JSON file (for compatibility with existing code)
+  const dbPath = path.join(projectPath, 'GameVerse.db.json');
+  
+  // Ensure DB exists (or will be created on first access)
   if (!fs.existsSync(dbPath)) {
-    throw new Error('GameVerse.db not found. This does not look like a valid GameVerse project folder.');
+    // If missing, create an empty DB file via getDB which will initialise defaults
+    getDB(projectPath);
   }
-
   // Ensure all expected subfolders exist (self-heal older/partial vaults)
   for (const folder of VAULT_FOLDERS) {
     const full = path.join(projectPath, folder);
     if (!fs.existsSync(full)) fs.mkdirSync(full, { recursive: true });
   }
 
-  const db = new Database(dbPath);
-  db.pragma('foreign_keys = ON');
+  const db = getDB(projectPath);
+  // lowdb does not need pragma
 
   let projectName = path.basename(projectPath);
   try {
-    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('project_name');
-    if (row && row.value) projectName = row.value;
+    if (db.data && db.data.meta && db.data.meta.project_name) {
+      projectName = db.data.meta.project_name;
+    }
   } catch (e) {
     // meta table may not exist in a very old vault; ignore
   }

@@ -38,7 +38,7 @@ function extOf(name) {
   return i >= 0 ? name.slice(i).toLowerCase() : "";
 }
 
-function ThreeModelViewer({ src, autoRotate = true }) {
+function ThreeModelViewer({ src, autoRotate = true, useHDRI = false }) {
   const containerRef = useRef(null);
   const rendererRef = useRef(null);
   const sceneRef = useRef(null);
@@ -80,7 +80,13 @@ function ThreeModelViewer({ src, autoRotate = true }) {
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x222222);
       sceneRef.current = scene;
-
+// HDRI environment map support – loaded only when the flag is true.
+if (useHDRI) {
+  const { RGBELoader } = await import('three/examples/jsm/loaders/RGBELoader.js');
+  const hdrTexture = await new RGBELoader().loadAsync('/assets/hdri/default.hdr');
+  hdrTexture.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = hdrTexture;
+}
       const camera = new THREE.PerspectiveCamera(
         35,
         container.clientWidth / Math.max(container.clientHeight, 240),
@@ -877,6 +883,9 @@ export default function FilesTab({ item, section, onChange }) {
   const [resolvedPaths, setResolvedPaths] = useState({});
   const [selectedReferenceImageId, setSelectedReferenceImageId] =
     useState(null);
+  // HDRI toggle for model previews (Free tier off, Pro tier can enable)
+  const [useHDRI, setUseHDRI] = useState(false);
+
   const [animationState, setAnimationState] = useState("playing");
   const [availableAnimations, setAvailableAnimations] = useState([]);
   const [selectedAnimationName, setSelectedAnimationName] = useState(null);
@@ -1100,12 +1109,12 @@ export default function FilesTab({ item, section, onChange }) {
       );
     }
     if (section === "Models" && (ext === ".glb" || ext === ".gltf")) {
-      return (
-        <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
-          <ThreeModelViewer src={src} autoRotate={true} />
-        </div>
-      );
-    }
+        return (
+          <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
+            <ThreeModelViewer src={src} autoRotate={true} useHDRI={useHDRI} />
+          </div>
+        );
+      }
     if (section === "Models" && ext === ".fbx") {
       return (
         <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
@@ -1257,11 +1266,11 @@ export default function FilesTab({ item, section, onChange }) {
     setShowModelPicker(false);
   }
 
-  function renderModelPreview(src, ext) {
+  function renderModelPreview(src, ext, useHDRI) {
     if (ext === ".glb" || ext === ".gltf") {
       return (
         <div className="preview-model">
-          <ThreeModelViewer src={src} autoRotate={true} />
+          <ThreeModelViewer src={src} autoRotate={true} useHDRI={useHDRI} />
         </div>
       );
     }
@@ -1286,7 +1295,7 @@ export default function FilesTab({ item, section, onChange }) {
     );
   }
 
-  function renderAnimationPreview(src, ext) {
+  function renderAnimationPreview(src, ext, useHDRI) {
     if (ext === ".fbx") {
       return (
         <div className="animation-preview">
@@ -1360,6 +1369,7 @@ export default function FilesTab({ item, section, onChange }) {
               resetKey={animationResetKey}
               onAvailableAnimations={setAvailableAnimations}
               onPlayTimeUpdate={setFbxPlayTime}
+              useHDRI={useHDRI}
             />
           </div>
           <div className="animation-controls">
@@ -1446,11 +1456,14 @@ export default function FilesTab({ item, section, onChange }) {
           </button>
         </div>
         {section === "Models" && (
-          <div
-            style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}
-          >
-            Supported: BLEND, GLB, GLTF, FBX, OBJ, STL — GLB/GLTF get a live 3D
-            preview.
+          <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>
+            <div style={{ marginTop: 8 }}>
+              <label>
+                <input type="checkbox" checked={useHDRI} onChange={() => setUseHDRI(prev => !prev)} /> Enable HDRI (Pro tier)
+              </label>
+            </div>
+            <p>Supported: BLEND, GLB, GLTF, FBX, OBJ, STL — GLB/GLTF get a live 3D preview.</p>
+            {/* */}
           </div>
         )}
         {section === "Scripts" && (
@@ -1558,7 +1571,7 @@ export default function FilesTab({ item, section, onChange }) {
                 if (section === "Models") {
                   return (
                     <div className="preview-split">
-                      {renderModelPreview(src, ext)}
+                      {renderModelPreview(src, ext, useHDRI)}
                       {renderReferenceImagePanel()}
                     </div>
                   );
@@ -1566,7 +1579,7 @@ export default function FilesTab({ item, section, onChange }) {
                 if (section === "Animations") {
                   return (
                     <div className="preview-split">
-                      {renderAnimationPreview(src, ext)}
+                      {renderAnimationPreview(src, ext, useHDRI)}
                       {renderSelectedModelPanel()}
                     </div>
                   );

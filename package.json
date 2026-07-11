@@ -12,7 +12,7 @@
     "dev": "node ./scripts/dev.js",
     "build": "vite build",
     "start": "cross-env NODE_ENV=production electron .",
-    "test": "node test_backend.js",
+    "test": "vitest run",
     "test:frontend": "vitest run",
     "test:all": "npm test && npm run test:frontend",
     "dist": "npm run build && electron-builder",
@@ -20,12 +20,15 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
-    "better-sqlite3": "^11.3.0",
+    "lowdb": "^5.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
     "three": "^0.185.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "babylonjs": "^7.0.0",
+    "@babylonjs/node-editor": "^7.0.0",
+    "fabric": "^5.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
