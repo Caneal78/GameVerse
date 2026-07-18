@@ -1,5 +1,21 @@
 /**
- * GameVerse Main Process
+// GameVerse Main Process
+
+// Add IPC handlers for backup system
+
+ipcMain.handle('backup:create', async () => {
+  await database.createBackup();
+  return { success: true };
+});
+
+ipcMain.handle('backup:list', async () => {
+  return database.listBackups();
+});
+
+ipcMain.handle('backup:restore', async (event, zipPath) => {
+  await database.restoreBackup(zipPath);
+  return { success: true };
+});
  *
  * Electron main process handling window management, IPC communication,
  * project lifecycle, and file system operations.
@@ -246,7 +262,10 @@ app.whenReady().then(() => {
       }
 
       if (!isAllowedGvfilePath(normalizedPath)) {
-        console.error("gvfile protocol denied path outside vault:", normalizedPath);
+        console.error(
+          "gvfile protocol denied path outside vault:",
+          normalizedPath,
+        );
         return callback({ error: -6 });
       }
 
@@ -435,10 +454,10 @@ ipcMain.handle("items:create", (event, payload) => {
     throw new Error("Invalid payload: name is required");
   }
   const { db } = requireProject();
-console.log('items:create payload:', payload);
-const result = itemRepo.createItem(db, payload);
-console.log('items:create result:', result);
-return result;
+  console.log("items:create payload:", payload);
+  const result = itemRepo.createItem(db, payload);
+  console.log("items:create result:", result);
+  return result;
 });
 
 /**
