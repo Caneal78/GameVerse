@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.0.1",
     "cross-env": "^7.0.3",
     "electron": "^43.1.1",
@@ -42,7 +42,7 @@
     "electron-icon-builder": "^2.0.1",
     "jsdom": "^26.1.0",
     "sharp": "^0.35.3",
-    "vite": "^8.1.5",
+    "vite": "^7.0.0",
     "vitest": "^3.2.4",
     "wait-on": "^8.0.0"
   },
