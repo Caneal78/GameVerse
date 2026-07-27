@@ -74,9 +74,12 @@ function shutdown(exitCode = 0) {
 }
 
 function spawnChild(command, args, options) {
+  // Ensure a writable Electron cache folder (avoids Windows access‑denied errors)
+  const cacheDir = path.join(projectRoot, "tempCache");
+  try { if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true }); } catch (_) {}
   const child = spawn(command, args, {
     cwd: projectRoot,
-    env: { ...process.env, NODE_ENV: "development" },
+    env: { ...process.env, NODE_ENV: "development", ELECTRON_CACHE: cacheDir },
     shell: process.platform === "win32",
     ...options,
   });

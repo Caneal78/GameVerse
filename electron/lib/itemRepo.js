@@ -24,38 +24,57 @@ function now() {
  * @param {Database} db - SQLite database connection
  * @param {Object} payload - Item data
  * @param {string} payload.name - Item name
- * @param {string} payload.category - Item category (Character, Creature, etc.)
+ * @param {string} payload.category - Item category
  * @param {string} [payload.status='Concept'] - Item status
  * @param {string} [payload.summary] - Item summary
  * @param {string[]} [payload.tags] - Array of tag names
  * @param {Object} [payload.fields] - Key-value pairs for template fields
  * @returns {Object} The created item with all related data
  */
-function createItem(db, { name, category, status, summary, tags, fields }) {
+function createItem(db, payload) {
+  const { name, category, status = 'Concept', summary = '', tags = [], fields = {} } = payload;
+  // Basic validation
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    throw new Error('Invalid payload: name must be a non‑empty string');
+  }
+  if (!category || typeof category !== 'string' || !category.trim()) {
+    throw new Error('Invalid payload: category must be a non‑empty string');
+  }
+  // Additional custom validation could be added here (e.g., regex for name)
+
   const id = uuidv4();
   const ts = now();
-  db.prepare(
-    `INSERT INTO items (id, name, category, status, summary, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, name, category, status || "Concept", summary || "", ts, ts);
+  const insertItem = db.prepare(`INSERT INTO items (id, name, category, status, summary, created_at, updated_at, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0)`);
+  const insertField = db.prepare(`INSERT INTO item_fields (id, item_id, field_key, field_value, field_order)
+    VALUES (?, ?, ?, ?, ?)`);
+  const insertTag = db.prepare('INSERT INTO tags (id, name) VALUES (?, ?)');
+  const insertItemTag = db.prepare('INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)');
 
-  if (Array.isArray(tags)) {
-    for (const tagName of tags) addTagToItem(db, id, tagName);
-  }
-
-  if (fields && typeof fields === "object") {
-    let order = 0;
+  const transaction = db.transaction(() => {
+    insertItem.run(id, name, category, status, summary, ts, ts);
+    // Insert fields
     for (const [key, value] of Object.entries(fields)) {
-      db.prepare(
-        `INSERT INTO item_fields (id, item_id, field_key, field_value, field_order)
-         VALUES (?, ?, ?, ?, ?)`,
-      ).run(uuidv4(), id, key, value == null ? "" : String(value), order++);
+      insertField.run(uuidv4(), id, key, value == null ? '' : String(value), 0);
     }
-  }
-
+    // Insert tags
+    for (const tagName of tags) {
+      const clean = tagName.trim();
+      if (!clean) continue;
+      let tag = db.prepare('SELECT * FROM tags WHERE name = ?').get(clean);
+      if (!tag) {
+        const tagId = uuidv4();
+        insertTag.run(tagId, clean);
+        tag = { id: tagId, name: clean };
+      }
+      insertItemTag.run(id, tag.id);
+    }
+  });
+  transaction();
   reindexItem(db, id);
   return getItem(db, id);
 }
+
 
 /**
  * Update an existing item
@@ -75,38 +94,36 @@ function updateItem(db, id, updates) {
   const item = db.prepare("SELECT * FROM items WHERE id = ?").get(id);
   if (!item) throw new Error("Item not found");
 
-  const name = updates.name !== undefined ? updates.name : item.name;
-  const category =
-    updates.category !== undefined ? updates.category : item.category;
-  const status = updates.status !== undefined ? updates.status : item.status;
-  const summary =
-    updates.summary !== undefined ? updates.summary : item.summary;
-
-  db.prepare(
-    `UPDATE items SET name = ?, category = ?, status = ?, summary = ?, updated_at = ? WHERE id = ?`,
-  ).run(name, category, status, summary, now(), id);
-
-  if (updates.fields && typeof updates.fields === "object") {
-    for (const [key, value] of Object.entries(updates.fields)) {
-      const existing = db
-        .prepare(
-          "SELECT id FROM item_fields WHERE item_id = ? AND field_key = ?",
-        )
-        .get(id, key);
-      if (existing) {
-        db.prepare("UPDATE item_fields SET field_value = ? WHERE id = ?").run(
-          value == null ? "" : String(value),
-          existing.id,
-        );
-      } else {
-        db.prepare(
-          `INSERT INTO item_fields (id, item_id, field_key, field_value, field_order)
-           VALUES (?, ?, ?, ?, ?)`,
-        ).run(uuidv4(), id, key, value == null ? "" : String(value), 0);
-      }
-    }
+  // Validate updates
+  if (updates.name !== undefined && (!updates.name || typeof updates.name !== 'string' || !updates.name.trim())) {
+    throw new Error('Invalid update: name must be a non‑empty string');
+  }
+  if (updates.category !== undefined && (!updates.category || typeof updates.category !== 'string' || !updates.category.trim())) {
+    throw new Error('Invalid update: category must be a non‑empty string');
   }
 
+  const name = updates.name !== undefined ? updates.name : item.name;
+  const category = updates.category !== undefined ? updates.category : item.category;
+  const status = updates.status !== undefined ? updates.status : item.status;
+  const summary = updates.summary !== undefined ? updates.summary : item.summary;
+
+  const updateItemStmt = db.prepare(
+    `UPDATE items SET name = ?, category = ?, status = ?, summary = ?, updated_at = ? WHERE id = ?`,
+  );
+  const deleteExistingFields = db.prepare(`DELETE FROM item_fields WHERE item_id = ?`);
+  const insertField = db.prepare(`INSERT INTO item_fields (id, item_id, field_key, field_value, field_order)
+    VALUES (?, ?, ?, ?, ?)`);
+
+  const transaction = db.transaction(() => {
+    updateItemStmt.run(name, category, status, summary, now(), id);
+    if (updates.fields && typeof updates.fields === 'object') {
+      deleteExistingFields.run(id);
+      for (const [key, value] of Object.entries(updates.fields)) {
+        insertField.run(uuidv4(), id, key, value == null ? '' : String(value), 0);
+      }
+    }
+  });
+  transaction();
   reindexItem(db, id);
   return getItem(db, id);
 }

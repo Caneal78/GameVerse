@@ -99,6 +99,16 @@ CREATE TABLE IF NOT EXISTS thumbnails (
   updated_at TEXT NOT NULL
 );
 
+-- Assets (images, 3D models, etc.)
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL, -- image | model
+  path TEXT NOT NULL, -- relative path inside vault
+  thumbnail_path TEXT, -- for GLB models
+  created_at TEXT NOT NULL
+);
+
 -- Links between items (generic, bidirectional, optional relationship label)
 CREATE TABLE IF NOT EXISTS links (
   id TEXT PRIMARY KEY,

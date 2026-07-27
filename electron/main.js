@@ -38,6 +38,14 @@ const { spawnSync, spawn } = require("child_process");
 
 const vault = require("./lib/vault");
 const itemRepo = require("./lib/itemRepo");
+const assetRepo = require('./lib/assetRepo');
+
+// IPC Handler: Import an asset (image or GLB model)
+ipcMain.handle('assets:import', async (event, { name, type, sourcePath }) => {
+  const { db, projectPath } = requireProject();
+  return assetRepo.importAsset(db, projectPath, { name, type, sourcePath });
+});
+
 const filesLib = require("./lib/files");
 const { search } = require("./lib/searchIndex");
 const { exportItem } = require("./lib/exportItem");

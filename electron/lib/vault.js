@@ -12,6 +12,7 @@ const path = require("path");
 const { getDB } = require("../../src/data/lowdb");
 const { v4: uuidv4 } = require("uuid");
 const { DEFAULT_TEMPLATES } = require("./schema");
+const { init: initSQLite, migrateFromJSON } = require("./db");
 
 /**
  * Standard folder structure for a GameVerse project vault
@@ -102,6 +103,11 @@ function createProject(parentDir, projectName) {
     });
   }
   db.write();
+  // Ensure an empty SQLite file exists for legacy compatibility
+  const sqlitePath = path.join(projectPath, "GameVerse.db");
+  if (!fs.existsSync(sqlitePath)) {
+    fs.writeFileSync(sqlitePath, "");
+  }
   return { projectPath, dbPath, projectName };
 }
 
@@ -137,7 +143,10 @@ function openProject(targetPath) {
   }
 
   const db = getDB(projectPath);
-  // lowdb does not need pragma
+  // Initialize SQLite database and run migration if needed
+  const sqlDb = initSQLite(projectPath);
+  const jsonPath = path.join(projectPath, "GameVerse.db.json");
+  migrateFromJSON(projectPath, jsonPath);
 
   let projectName = path.basename(projectPath);
   try {
@@ -148,7 +157,8 @@ function openProject(targetPath) {
     // meta table may not exist in a very old vault; ignore
   }
 
-  return { projectPath, dbPath, projectName, db };
+  // Return SQLite db for application logic
+  return { projectPath, dbPath, projectName, db: sqlDb };
 }
 
 /**

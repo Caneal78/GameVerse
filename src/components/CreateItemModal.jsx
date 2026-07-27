@@ -96,6 +96,37 @@ export default function CreateItemModal({ defaultCategory, onClose, onCreated })
     }
   }
 
+  // Import asset handler
+  const handleImportAsset = async (e) => {
+    e.preventDefault();
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '*/*';
+    input.onchange = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const sourcePath = window.gvGetPathForFile(file);
+      if (!sourcePath) {
+        showToast('Unable to resolve file path.', 'error');
+        return;
+      }
+      const name = file.name;
+      const ext = name.split('.').pop().toLowerCase();
+      const type = ext === 'glb' ? 'model' : 'image';
+      try {
+        const result = await window.gameverse.assets.import({ name, type, sourcePath });
+        if (result && result.id) {
+          showToast(`Asset ${name} imported.`, 'success');
+        } else {
+          showToast('Asset import returned no result.', 'warning');
+        }
+      } catch (err) {
+        showToast(err.message || 'Asset import failed', 'error');
+      }
+    };
+    input.click();
+  };
+
   return (
     <div className="modal-overlay" onClick={() => !busy && onClose()}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -113,6 +144,11 @@ export default function CreateItemModal({ defaultCategory, onClose, onCreated })
               placeholder="e.g. Vance"
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             />
+          </div>
+          <div className="field-group">
+            <button className="btn btn-primary" onClick={handleImportAsset} disabled={busy}>
+              Import Asset
+            </button>
           </div>
           <div className="field-group">
             <label>Category</label>

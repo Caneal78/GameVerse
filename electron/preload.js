@@ -7,7 +7,7 @@
  * @module preload
  */
 
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 /**
  * Get the filesystem path from a File object
@@ -16,9 +16,11 @@ const { contextBridge, ipcRenderer } = require("electron");
  * @param {File} file - File object from drag & drop
  * @returns {string|null} Filesystem path or null
  */
-contextBridge.exposeInMainWorld("gvGetPathForFile", (file) => {
-  return file && (file.path || null);
-});
+  contextBridge.exposeInMainWorld("gvGetPathForFile", (file) => {
+    // Use Electron's webUtils to securely obtain the absolute path
+    const path = file && webUtils.getPathForFile(file);
+    return path || null;
+  });
 
 /**
  * Main GameVerse API exposed to renderer process
@@ -113,5 +115,8 @@ contextBridge.exposeInMainWorld("gameverse", {
   backup: {
     create: () => ipcRenderer.invoke("backup:create"),
     list: () => ipcRenderer.invoke("backup:list"),
+  },
+  assets: {
+    import: ({ name, type, sourcePath }) => ipcRenderer.invoke('assets:import', { name, type, sourcePath })
   },
 });
