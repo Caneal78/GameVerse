@@ -11,15 +11,24 @@ export default function StartupScreen() {
   const [busy, setBusy] = useState(false);
 
   async function handleCreate() {
+    console.log('[StartupScreen] handleCreate called with name:', projectName);
     if (!projectName.trim()) {
       showToast('Please enter a project name.', 'error');
       return;
     }
     setBusy(true);
     try {
+      console.log('[StartupScreen] Calling newProject...');
       const res = await newProject(projectName.trim());
-      if (res.canceled) setBusy(false);
+      console.log('[StartupScreen] newProject result:', res);
+      if (res.canceled) {
+        console.log('[StartupScreen] User canceled project creation');
+        setBusy(false);
+      } else {
+        console.log('[StartupScreen] Project created successfully:', res);
+      }
     } catch (e) {
+      console.error('[StartupScreen] Project creation error:', e);
       showToast(e.message || 'Failed to create project', 'error');
       setBusy(false);
     }

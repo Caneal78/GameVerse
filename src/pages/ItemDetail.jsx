@@ -29,6 +29,7 @@ export default function ItemDetail() {
   const [tab, setTab] = useState("info");
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
   const [launchingBlender, setLaunchingBlender] = useState(false);
   const [thumbSrc, setThumbSrc] = useState(null);
 
@@ -78,13 +79,17 @@ export default function ItemDetail() {
 
   async function handleExport() {
     setExporting(true);
+    setExportProgress({ current: 0, total: 0 });
     try {
-      const res = await window.gameverse.exportItem.run(item.id);
+      const res = await window.gameverse.exportItem.runWithProgress(item.id, (current, total) => {
+        setExportProgress({ current, total });
+      });
       showToast(`Exported ${res.fileCount} file(s) to Exports/`, "success");
     } catch (e) {
       showToast(e.message || "Export failed", "error");
     } finally {
       setExporting(false);
+      setExportProgress({ current: 0, total: 0 });
     }
   }
 
@@ -158,8 +163,20 @@ export default function ItemDetail() {
             className="btn btn-ghost"
             onClick={handleExport}
             disabled={exporting || launchingBlender}
+            style={{ position: 'relative' }}
           >
-            {exporting ? <span className="spinner" /> : "⬇ Export"}
+            {exporting ? (
+              <>
+                <span className="spinner" />
+                {exportProgress.total > 0 && (
+                  <span style={{ marginLeft: 8, fontSize: 12 }}>
+                    {exportProgress.current}/{exportProgress.total}
+                  </span>
+                )}
+              </>
+            ) : (
+              "⬇ Export"
+            )}
           </button>
           <button
             className="btn btn-ghost"

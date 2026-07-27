@@ -179,8 +179,27 @@ async function main() {
 
   console.log('\n✅ ALL BACKEND TESTS PASSED');
   console.log('\nCleaning up test directories...');
-  fs.rmSync(tmpParent, { recursive: true, force: true });
-  fs.rmSync(sourceDir, { recursive: true, force: true });
+  
+  // Robust cleanup with retries for Windows permission issues
+  function cleanupWithRetry(dir, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        if (fs.existsSync(dir)) {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+        return;
+      } catch (e) {
+        if (i === retries - 1) {
+          console.warn(`Warning: Could not clean up ${dir}: ${e.message}`);
+          console.warn('You may need to manually delete this directory.');
+        }
+        // Retry immediately - Windows file locks often clear quickly
+      }
+    }
+  }
+  
+  cleanupWithRetry(tmpParent);
+  cleanupWithRetry(sourceDir);
 }
 
 main().catch((e) => {

@@ -1,0 +1,27 @@
+{
+  "changelists": [
+    {
+      "name": "Default",
+      "files": [
+        "test_backend.js",
+        ".vscode/changelists.json",
+        "electron/main.js",
+        "electron/lib/searchIndex.js",
+        "electron/preload.js",
+        "src/pages/SettingsPage.jsx",
+        "src/components/tabs/NotebookTab.jsx",
+        "src/pages/WorldBible.jsx",
+        "electron/lib/exportItem.js",
+        "src/pages/ItemDetail.jsx",
+        "electron/lib/vault.js",
+        "scripts/dev.js",
+        "src/context/ProjectContext.jsx",
+        "src/pages/StartupScreen.jsx",
+        "test_project_creation.js",
+        "package-lock.json",
+        "package.json"
+      ]
+    }
+  ],
+  "active": "Default"
+}

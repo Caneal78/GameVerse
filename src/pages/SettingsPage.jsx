@@ -9,6 +9,7 @@ export default function SettingsPage() {
   const [fields, setFields] = useState([]);
   const [backups, setBackups] = useState([]);
   const [blenderPath, setBlenderPath] = useState("");
+  const [stats, setStats] = useState(null);
 
   async function load() {
     const list = await window.gameverse.templates.list();
@@ -18,6 +19,8 @@ export default function SettingsPage() {
     setBackups(b);
     const settings = await window.gameverse.settings.get();
     setBlenderPath(settings?.blenderPath || "");
+    const s = await window.gameverse.maintenance.getStats();
+    setStats(s);
   }
 
   useEffect(() => {
@@ -70,6 +73,25 @@ export default function SettingsPage() {
     if (!res.canceled) {
       setBlenderPath(res.blenderPath);
       showToast("Blender path saved.", "success");
+    }
+  }
+
+  async function handleRebuildSearchIndex() {
+    try {
+      const res = await window.gameverse.maintenance.rebuildSearchIndex();
+      showToast(`Search index rebuilt (${res.reindexed} items)`, "success");
+    } catch (e) {
+      showToast(e.message || "Failed to rebuild search index", "error");
+    }
+  }
+
+  async function handleClearCache() {
+    if (!confirm("Clear application cache? This will remove temporary files.")) return;
+    try {
+      const res = await window.gameverse.maintenance.clearCache();
+      showToast(`Cache cleared (${res.cleared} items)`, "success");
+    } catch (e) {
+      showToast(e.message || "Failed to clear cache", "error");
     }
   }
 
@@ -187,6 +209,60 @@ export default function SettingsPage() {
             Blender must be installed and available on PATH, or set here
             manually.
           </div>
+        </div>
+
+        <div className="section-title">Database Statistics</div>
+        {stats && (
+          <div className="card" style={{ marginBottom: 24, padding: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Items</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.items}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Tags</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.tags}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Notes</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.notes}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Files</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.files}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Links</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.links}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Collections</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.collections}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>World Bible</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.worldBiblePages}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Backups</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{stats.backups}</div>
+              </div>
+              <div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>DB Size</div>
+                <div style={{ fontSize: 18, fontWeight: "bold" }}>{(stats.dbSize / 1024 / 1024).toFixed(2)} MB</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="section-title">Maintenance</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+          <button className="btn btn-sm" onClick={handleRebuildSearchIndex}>
+            🔄 Rebuild Search Index
+          </button>
+          <button className="btn btn-sm" onClick={handleClearCache}>
+            🧹 Clear Cache
+          </button>
         </div>
 
         <div className="section-title">Backups</div>

@@ -45,7 +45,9 @@ export function ProjectProvider({ children }) {
     gameverse.project
       .current()
       .then((p) => {
-        setProject(p);
+        if (p) {
+          setProject(p);
+        }
       })
       .catch((error) => {
         console.warn("Failed to load current project:", error);
@@ -56,8 +58,11 @@ export function ProjectProvider({ children }) {
   }, []);
 
   const newProject = useCallback(async (name) => {
+    console.log('[ProjectContext] newProject called with:', name);
     const res = await window.gameverse.project.new(name);
+    console.log('[ProjectContext] newProject response:', res);
     if (!res.canceled) {
+      console.log('[ProjectContext] Setting project state:', res);
       setProject({
         projectPath: res.projectPath,
         projectName: res.projectName,

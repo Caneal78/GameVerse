@@ -7,7 +7,7 @@
  * @component NotebookTab
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useToast } from '../../context/ToastContext.jsx';
 import { safeIpc } from '../../utils/safeIpc.js';
 
@@ -44,6 +44,58 @@ export default function NotebookTab({ item, onChange }) {
   const [editTitle, setEditTitle] = useState('');
   const [editType, setEditType] = useState('General');
   const [editBody, setEditBody] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
+  const [isAutosaving, setIsAutosaving] = useState(false);
+  const autosaveTimerRef = useRef(null);
+  const originalNoteRef = useRef(null);
+
+  // Autosave with debounce (2 seconds)
+  useEffect(() => {
+    if (!isDirty || !editingId) return;
+
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = setTimeout(async () => {
+      setIsAutosaving(true);
+      try {
+        await safeIpc(
+          globalThis.gameverse?.notes.update(editingId, {
+            title: editTitle,
+            note_type: editType,
+            body: editBody,
+          }),
+          { showToast, errorMessage: 'Autosave failed' },
+        );
+        setIsDirty(false);
+        onChange?.();
+      } catch {
+        // Toast already shown by safeIpc
+      } finally {
+        setIsAutosaving(false);
+      }
+    }, 2000);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+    };
+  }, [isDirty, editingId, editTitle, editType, editBody]);
+
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    globalThis.addEventListener('beforeunload', handleBeforeUnload);
+    return () => globalThis.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   async function handleCreate() {
     if (!title.trim()) {
@@ -70,6 +122,24 @@ export default function NotebookTab({ item, onChange }) {
     setEditTitle(note.title);
     setEditType(note.note_type);
     setEditBody(note.body);
+    originalNoteRef.current = { ...note };
+    setIsDirty(false);
+  }
+
+  function handleEditFieldChange(field, value) {
+    if (field === 'title') setEditTitle(value);
+    else if (field === 'type') setEditType(value);
+    else if (field === 'body') setEditBody(value);
+
+    // Check if dirty after change
+    if (originalNoteRef.current) {
+      const dirty = (
+        (field === 'title' ? value : editTitle) !== originalNoteRef.current.title ||
+        (field === 'type' ? value : editType) !== originalNoteRef.current.note_type ||
+        (field === 'body' ? value : editBody) !== originalNoteRef.current.body
+      );
+      setIsDirty(dirty);
+    }
   }
 
   async function saveEdit(noteId) {
@@ -148,19 +218,24 @@ export default function NotebookTab({ item, onChange }) {
               <div className="two-col">
                 <div className="field-group">
                   <label>Title</label>
-                  <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                  <input type="text" value={editTitle} onChange={(e) => handleEditFieldChange('title', e.target.value)} />
                 </div>
                 <div className="field-group">
                   <label>Type</label>
-                  <select value={editType} onChange={(e) => setEditType(e.target.value)}>
+                  <select value={editType} onChange={(e) => handleEditFieldChange('type', e.target.value)}>
                     {NOTE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
-              <textarea rows={8} value={editBody} onChange={(e) => setEditBody(e.target.value)} />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-primary btn-sm" onClick={() => saveEdit(note.id)}>Save</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+              <textarea rows={8} value={editBody} onChange={(e) => handleEditFieldChange('body', e.target.value)} />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  {isAutosaving ? 'Autosaving...' : isDirty ? 'Unsaved changes (autosave in 2s)' : 'All changes saved'}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-primary btn-sm" onClick={() => saveEdit(note.id)}>Save</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+                </div>
               </div>
             </div>
           ) : (

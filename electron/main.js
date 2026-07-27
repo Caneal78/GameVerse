@@ -1,22 +1,4 @@
 /**
-// GameVerse Main Process
-
-// Add IPC handlers for backup system
-
-ipcMain.handle('backup:create', async () => {
-  await database.createBackup();
-  return { success: true };
-});
-
-ipcMain.handle('backup:list', async () => {
-  return database.listBackups();
-});
-
-ipcMain.handle('backup:restore', async (event, zipPath) => {
-  await database.restoreBackup(zipPath);
-  return { success: true };
-});
- *
  * Electron main process handling window management, IPC communication,
  * project lifecycle, and file system operations.
  *
@@ -48,7 +30,7 @@ ipcMain.handle('assets:import', async (event, { name, type, sourcePath }) => {
 
 const filesLib = require("./lib/files");
 const { search } = require("./lib/searchIndex");
-const { exportItem } = require("./lib/exportItem");
+const { exportItem, exportItemWithProgress } = require("./lib/exportItem");
 const { createBackup } = require("./lib/backup");
 
 /**
@@ -353,21 +335,35 @@ function isAllowedGvfilePath(normalizedPath) {
  * @returns {Promise<{canceled: boolean, projectPath?: string, projectName?: string}>}
  */
 ipcMain.handle("project:new", async (event, { projectName }) => {
+  console.log('[Electron] project:new called with:', projectName);
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "Choose a location for your new GameVerse project",
     properties: ["openDirectory", "createDirectory"],
   });
+  console.log('[Electron] Dialog result:', result);
   if (result.canceled || !result.filePaths[0]) return { canceled: true };
 
   const parentDir = result.filePaths[0];
-  const created = vault.createProject(parentDir, projectName);
-  const opened = vault.openProject(created.projectPath);
-  currentProject = opened;
-  return {
-    canceled: false,
-    projectPath: opened.projectPath,
-    projectName: opened.projectName,
-  };
+  console.log('[Electron] Parent directory:', parentDir);
+  
+  try {
+    console.log('[Electron] Creating project...');
+    const created = vault.createProject(parentDir, projectName);
+    console.log('[Electron] Project created:', created);
+    console.log('[Electron] Opening project...');
+    const opened = vault.openProject(created.projectPath);
+    console.log('[Electron] Project opened:', opened);
+    currentProject = opened;
+    console.log('[Electron] Returning success');
+    return {
+      canceled: false,
+      projectPath: opened.projectPath,
+      projectName: opened.projectName,
+    };
+  } catch (error) {
+    console.error("[Electron] Project creation failed:", error);
+    throw new Error(`Failed to create project: ${error.message}`);
+  }
 });
 
 /**
@@ -927,6 +923,22 @@ ipcMain.handle("export:item", (event, itemId) => {
 });
 
 /**
+ * IPC Handler: Export an item with progress tracking
+ * Sends progress events to renderer during export.
+ *
+ * @param {IpcMainInvokeEvent} event - IPC event
+ * @param {string} itemId - Item UUID to export
+ * @returns {{fileCount: number}} Export metadata
+ */
+ipcMain.handle("export:itemWithProgress", (event, itemId) => {
+  const { db, projectPath } = requireProject();
+  
+  return exportItemWithProgress(db, projectPath, itemId, (current, total) => {
+    event.sender.send("export:progress", { current, total, itemId });
+  });
+});
+
+/**
  * IPC Handler: Reveal export folder in file manager
  *
  * @param {string} exportPath - Path to export folder
@@ -1060,4 +1072,80 @@ ipcMain.handle("backup:create", async () => {
 ipcMain.handle("backup:list", () => {
   const { db } = requireProject();
   return db.prepare("SELECT * FROM backups ORDER BY created_at DESC").all();
+});
+
+// ---------- Database Maintenance ----------
+
+/**
+ * IPC Handler: Rebuild the full-text search index
+ * Re-indexes all items, tags, notes, fields, and files.
+ *
+ * @returns {Object} Result with count of reindexed items
+ */
+ipcMain.handle("maintenance:rebuildSearchIndex", async () => {
+  const { db } = requireProject();
+  const { reindexAll } = require("./lib/searchIndex");
+  const count = await reindexAll(db);
+  return { reindexed: count };
+});
+
+/**
+ * IPC Handler: Get database statistics
+ * Returns counts of various entities in the database.
+ *
+ * @returns {Object} Database statistics
+ */
+ipcMain.handle("maintenance:getStats", () => {
+  const { db } = requireProject();
+  const stats = {
+    items: db.prepare("SELECT COUNT(*) as count FROM items").get().count,
+    tags: db.prepare("SELECT COUNT(*) as count FROM tags").get().count,
+    notes: db.prepare("SELECT COUNT(*) as count FROM notes").get().count,
+    files: db.prepare("SELECT COUNT(*) as count FROM files").get().count,
+    links: db.prepare("SELECT COUNT(*) as count FROM links").get().count,
+    collections: db.prepare("SELECT COUNT(*) as count FROM collections").get().count,
+    worldBiblePages: db.prepare("SELECT COUNT(*) as count FROM world_bible_pages").get().count,
+    backups: db.prepare("SELECT COUNT(*) as count FROM backups").get().count,
+    dbSize: 0,
+  };
+  
+  // Get database file size
+  try {
+    const fs = require("fs");
+    const dbPath = db.prepare("PRAGMA database_list").all()[0].file;
+    if (dbPath && fs.existsSync(dbPath)) {
+      stats.dbSize = fs.statSync(dbPath).size;
+    }
+  } catch (e) {
+    console.warn("Could not get database size:", e.message);
+  }
+  
+  return stats;
+});
+
+/**
+ * IPC Handler: Clear application cache
+ * Clears any cached data (thumbnails, temp files, etc.)
+ *
+ * @returns {Object} Result with cleared items count
+ */
+ipcMain.handle("maintenance:clearCache", async () => {
+  const { projectPath } = requireProject();
+  const fs = require("fs");
+  const path = require("path");
+  
+  let cleared = 0;
+  
+  // Clear temp directory if it exists
+  const tempDir = path.join(projectPath, "Temp");
+  if (fs.existsSync(tempDir)) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      cleared++;
+    } catch (e) {
+      console.warn("Could not clear Temp directory:", e.message);
+    }
+  }
+  
+  return { cleared };
 });

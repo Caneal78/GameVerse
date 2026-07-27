@@ -1,6 +1,7 @@
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const os = require("os");
+const fs = require("fs");
 
 const projectRoot = path.resolve(__dirname, "..");
 const port = process.env.DEV_PORT || "5173";

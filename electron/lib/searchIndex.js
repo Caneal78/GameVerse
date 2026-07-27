@@ -93,9 +93,32 @@ function search(db, query, limit = 100) {
 }
 
 /**
+ * Rebuild the search index for all items
+ * Clears and rebuilds the entire FTS5 index.
+ * 
+ * @param {Database} db - SQLite database connection
+ * @returns {number} Number of items reindexed
+ */
+function reindexAll(db) {
+  // Clear existing index
+  db.prepare('DELETE FROM search_index').run();
+  
+  // Get all items
+  const items = db.prepare('SELECT id FROM items').all();
+  
+  // Reindex each item
+  for (const item of items) {
+    reindexItem(db, item.id);
+  }
+  
+  return items.length;
+}
+
+/**
  * Export search index functions
  * 
  * @exports {function} reindexItem - Rebuild search index for an item
  * @exports {function} search - Perform full-text search
+ * @exports {function} reindexAll - Rebuild search index for all items
  */
-module.exports = { reindexItem, search };
+module.exports = { reindexItem, search, reindexAll };

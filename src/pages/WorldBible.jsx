@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Layout from '../components/Layout.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { safeIpc } from '../utils/safeIpc.js';
@@ -19,6 +19,8 @@ export default function WorldBible() {
   const [editBody, setEditBody] = useState('');
   const [editLinkedItem, setEditLinkedItem] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [isAutosaving, setIsAutosaving] = useState(false);
+  const autosaveTimerRef = useRef(null);
 
   function selectPage(page) {
     setSelected(page);
@@ -35,6 +37,55 @@ export default function WorldBible() {
     setEditLinkedItem('');
     setDirty(false);
   }
+
+  // Autosave with debounce (2 seconds)
+  useEffect(() => {
+    if (!dirty || !selected) return;
+
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+
+    autosaveTimerRef.current = setTimeout(async () => {
+      setIsAutosaving(true);
+      try {
+        const updated = await safeIpc(
+          globalThis.gameverse?.worldBible.update(selected.id, {
+            title: editTitle,
+            body: editBody,
+            linked_item_id: editLinkedItem || null,
+          }),
+          { showToast, errorMessage: 'Autosave failed' },
+        );
+        setDirty(false);
+        setPages((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+        setSelected(updated);
+      } catch {
+        // Toast already shown by safeIpc
+      } finally {
+        setIsAutosaving(false);
+      }
+    }, 2000);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+      }
+    };
+  }, [dirty, selected, editTitle, editBody, editLinkedItem, showToast]);
+
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    globalThis.addEventListener('beforeunload', handleBeforeUnload);
+    return () => globalThis.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [dirty]);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,9 +245,14 @@ export default function WorldBible() {
                   onChange={(e) => { setEditBody(e.target.value); setDirty(true); }}
                   placeholder="Write world bible content here..."
                 />
-                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                  <button className="btn btn-primary" onClick={handleSave} disabled={!dirty}>Save Page</button>
-                  <button className="btn btn-danger" onClick={handleDelete}>Delete Page</button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    {isAutosaving ? 'Autosaving...' : dirty ? 'Unsaved changes (autosave in 2s)' : 'All changes saved'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-primary" onClick={handleSave} disabled={!dirty}>Save Page</button>
+                    <button className="btn btn-danger" onClick={handleDelete}>Delete Page</button>
+                  </div>
                 </div>
               </>
             ) : (

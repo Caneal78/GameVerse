@@ -9,7 +9,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const { getDB } = require("../../src/data/lowdb");
 const { v4: uuidv4 } = require("uuid");
 const { DEFAULT_TEMPLATES } = require("./schema");
 const { init: initSQLite, migrateFromJSON } = require("./db");
@@ -82,32 +81,26 @@ function createProject(parentDir, projectName) {
     fs.mkdirSync(path.join(projectPath, folder), { recursive: true });
   }
 
-  const dbPath = path.join(projectPath, "GameVerse.db.json");
-  const db = getDB(projectPath);
+  // Initialize SQLite database
+  const db = initSQLite(projectPath);
+  const dbPath = path.join(projectPath, "GameVerse.db");
 
   const now = new Date().toISOString();
   // Initialize meta data
-  db.data.meta = {
-    project_name: projectName,
-    created_at: now,
-    gameverse_version: "1.0.0",
-  };
+  const insertMeta = db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
+  insertMeta.run('project_name', projectName);
+  insertMeta.run('created_at', now);
+  insertMeta.run('gameverse_version', '1.0.0');
 
   // Initialize templates
-  db.data.templates = [];
+  const insertTemplate = db.prepare('INSERT OR REPLACE INTO templates (id, category, fields_json) VALUES (?, ?, ?)');
   for (const tpl of DEFAULT_TEMPLATES) {
-    db.data.templates.push({
-      id: uuidv4(),
-      category: tpl.category,
-      fields_json: JSON.stringify(tpl.fields),
-    });
+    insertTemplate.run(uuidv4(), tpl.category, JSON.stringify(tpl.fields));
   }
-  db.write();
-  // Ensure an empty SQLite file exists for legacy compatibility
-  const sqlitePath = path.join(projectPath, "GameVerse.db");
-  if (!fs.existsSync(sqlitePath)) {
-    fs.writeFileSync(sqlitePath, "");
-  }
+
+  // Close the database connection after initialization
+  db.close();
+
   return { projectPath, dbPath, projectName };
 }
 
@@ -128,37 +121,45 @@ function openProject(targetPath) {
     projectPath = path.dirname(targetPath);
   }
 
-  // Path to lowdb JSON file (for compatibility with existing code)
-  const dbPath = path.join(projectPath, "GameVerse.db.json");
+  // Path to SQLite database
+  const dbPath = path.join(projectPath, "GameVerse.db");
+  const jsonPath = path.join(projectPath, "GameVerse.db.json");
 
-  // Ensure DB exists (or will be created on first access)
-  if (!fs.existsSync(dbPath)) {
-    // If missing, create an empty DB file via getDB which will initialise defaults
-    getDB(projectPath);
+  // If SQLite DB doesn't exist but JSON does, migrate it
+  if (!fs.existsSync(dbPath) && fs.existsSync(jsonPath)) {
+    // Initialize SQLite DB first
+    const tempDb = initSQLite(projectPath);
+    // Run migration from JSON
+    migrateFromJSON(projectPath, jsonPath);
+    tempDb.close();
   }
+
+  // Ensure DB exists
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`GameVerse.db not found at ${dbPath}`);
+  }
+
   // Ensure all expected subfolders exist (self-heal older/partial vaults)
   for (const folder of VAULT_FOLDERS) {
     const full = path.join(projectPath, folder);
     if (!fs.existsSync(full)) fs.mkdirSync(full, { recursive: true });
   }
 
-  const db = getDB(projectPath);
-  // Initialize SQLite database and run migration if needed
-  const sqlDb = initSQLite(projectPath);
-  const jsonPath = path.join(projectPath, "GameVerse.db.json");
-  migrateFromJSON(projectPath, jsonPath);
+  // Initialize SQLite database
+  const db = initSQLite(projectPath);
 
+  // Get project name from meta table
   let projectName = path.basename(projectPath);
   try {
-    if (db.data && db.data.meta && db.data.meta.project_name) {
-      projectName = db.data.meta.project_name;
+    const meta = db.prepare('SELECT value FROM meta WHERE key = ?').get('project_name');
+    if (meta && meta.value) {
+      projectName = meta.value;
     }
   } catch (e) {
     // meta table may not exist in a very old vault; ignore
   }
 
-  // Return SQLite db for application logic
-  return { projectPath, dbPath, projectName, db: sqlDb };
+  return { projectPath, dbPath, projectName, db };
 }
 
 /**

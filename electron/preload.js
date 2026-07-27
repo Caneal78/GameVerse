@@ -103,6 +103,25 @@ contextBridge.exposeInMainWorld("gameverse", {
   },
   exportItem: {
     run: (itemId) => ipcRenderer.invoke("export:item", itemId),
+    runWithProgress: (itemId, onProgress) => {
+      // Remove old listener if exists
+      const listener = (event, data) => {
+        if (data.itemId === itemId) {
+          onProgress(data.current, data.total);
+        }
+      };
+      ipcRenderer.on("export:progress", listener);
+      
+      // Call the export
+      const promise = ipcRenderer.invoke("export:itemWithProgress", itemId);
+      
+      // Clean up listener after completion
+      promise.finally(() => {
+        ipcRenderer.removeListener("export:progress", listener);
+      });
+      
+      return promise;
+    },
     reveal: (exportPath) => ipcRenderer.invoke("export:reveal", exportPath),
   },
   blender: {
@@ -115,6 +134,11 @@ contextBridge.exposeInMainWorld("gameverse", {
   backup: {
     create: () => ipcRenderer.invoke("backup:create"),
     list: () => ipcRenderer.invoke("backup:list"),
+  },
+  maintenance: {
+    rebuildSearchIndex: () => ipcRenderer.invoke("maintenance:rebuildSearchIndex"),
+    getStats: () => ipcRenderer.invoke("maintenance:getStats"),
+    clearCache: () => ipcRenderer.invoke("maintenance:clearCache"),
   },
   assets: {
     import: ({ name, type, sourcePath }) => ipcRenderer.invoke('assets:import', { name, type, sourcePath })
