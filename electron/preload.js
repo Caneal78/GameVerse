@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld("gameverse", {
       ipcRenderer.invoke("files:setThumbnail", { itemId }),
     resolvePath: (storedPath) =>
       ipcRenderer.invoke("files:resolvePath", storedPath),
+    readAsArrayBuffer: (filePath) =>
+      ipcRenderer.invoke("files:readAsArrayBuffer", filePath),
   },
   search: {
     query: (q) => ipcRenderer.invoke("search:query", q),

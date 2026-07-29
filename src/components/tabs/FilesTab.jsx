@@ -10,6 +10,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../context/ToastContext.jsx";
 import { toGvfileUrl } from "../../utils/gvfileUrl.js";
+import ImageViewer from "../ImageViewer.jsx";
+import GlbViewer from "../GlbViewer.jsx";
 /**
  * Supported 3D model file extensions
  * @type {string[]}
@@ -26,6 +28,12 @@ const ANIMATION_EXTS = [".glb", ".gltf", ".fbx", ".dae", ".anim", ".bvh"];
  * @type {string[]}
  */
 const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+
+/**
+ * Supported audio file extensions
+ * @type {string[]}
+ */
+const AUDIO_EXTS = [".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma"];
 
 /**
  * Get file extension from filename
@@ -80,13 +88,13 @@ function ThreeModelViewer({ src, autoRotate = true, useHDRI = false }) {
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x222222);
       sceneRef.current = scene;
-// HDRI environment map support – loaded only when the flag is true.
-if (useHDRI) {
-  const { RGBELoader } = await import('three/examples/jsm/loaders/RGBELoader.js');
-  const hdrTexture = await new RGBELoader().loadAsync('/assets/hdri/default.hdr');
-  hdrTexture.mapping = THREE.EquirectangularReflectionMapping;
-  scene.environment = hdrTexture;
-}
+      // HDRI environment map support – loaded only when the flag is true.
+      if (useHDRI) {
+        const { RGBELoader } = await import('three/examples/jsm/loaders/RGBELoader.js');
+        const hdrTexture = await new RGBELoader().loadAsync('/assets/hdri/default.hdr');
+        hdrTexture.mapping = THREE.EquirectangularReflectionMapping;
+        scene.environment = hdrTexture;
+      }
       const camera = new THREE.PerspectiveCamera(
         35,
         container.clientWidth / Math.max(container.clientHeight, 240),
@@ -1097,24 +1105,66 @@ export default function FilesTab({ item, section, onChange }) {
 
   function renderPreview(file) {
     const p = resolvedPaths[file.id];
+    console.log('renderPreview for file:', file.original_name, 'resolved path:', p);
     if (!p) return <div className="file-card-preview">…</div>;
     const ext = extOf(file.original_name);
     const src = toGvfileUrl(p);
+    console.log('renderPreview src:', src, 'ext:', ext);
 
     if (section === "Images" || IMAGE_EXTS.includes(ext)) {
+      if (!p) {
+        return (
+          <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              color: '#888',
+              fontSize: '12px'
+            }}>
+              Loading...
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
-          <img src={src} alt={file.original_name} />
+          <img
+            src={src}
+            alt={file.original_name}
+            onError={(e) => {
+              console.error('Thumbnail load error:', file.original_name, src);
+              e.target.style.display = 'none';
+            }}
+          />
         </div>
       );
     }
     if (section === "Models" && (ext === ".glb" || ext === ".gltf")) {
-        return (
-          <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
-            <ThreeModelViewer src={src} autoRotate={true} useHDRI={useHDRI} />
+      return (
+        <div className="file-card-preview" onClick={() => {
+          console.log('[FilesTab] GLB file clicked:', file.original_name);
+          setPreviewFile(file);
+        }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              flexDirection: "column",
+              gap: "8px"
+            }}
+          >
+            <span style={{ fontSize: 28 }}>🧊</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              3D Model
+            </span>
           </div>
-        );
-      }
+        </div>
+      );
+    }
     if (section === "Models" && ext === ".fbx") {
       return (
         <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
@@ -1134,7 +1184,11 @@ export default function FilesTab({ item, section, onChange }) {
 
     if (section === "Audio") {
       return (
-        <div className="file-card-preview" style={{ padding: 10 }}>
+        <div
+          className="file-card-preview"
+          onClick={() => setPreviewFile(file)}
+          style={{ padding: 10, cursor: 'pointer' }}
+        >
           <span style={{ fontSize: 28 }}>🔊</span>
         </div>
       );
@@ -1219,6 +1273,10 @@ export default function FilesTab({ item, section, onChange }) {
                   <img
                     src={imageSrc}
                     alt={image.original_name}
+                    onError={(e) => {
+                      console.error('Reference thumbnail error:', image.original_name);
+                      e.target.style.display = 'none';
+                    }}
                     style={{ width: "100%", height: "100%", objectFit: "cover" }}
                   />
                 ) : (
@@ -1267,10 +1325,13 @@ export default function FilesTab({ item, section, onChange }) {
   }
 
   function renderModelPreview(src, ext, useHDRI) {
+    console.log('[FilesTab] renderModelPreview called:', { src, ext, useHDRI });
+
     if (ext === ".glb" || ext === ".gltf") {
+      console.log('[FilesTab] Rendering GlbViewer with src:', src);
       return (
         <div className="preview-model">
-          <ThreeModelViewer src={src} autoRotate={true} useHDRI={useHDRI} />
+          <GlbViewer src={src} onClose={() => setPreviewFile(null)} />
         </div>
       );
     }
@@ -1296,124 +1357,29 @@ export default function FilesTab({ item, section, onChange }) {
   }
 
   function renderAnimationPreview(src, ext, useHDRI) {
-    if (ext === ".fbx") {
+    if (ext === ".glb" || ext === ".gltf") {
       return (
-        <div className="animation-preview">
-          <div className="animation-viewer">
-            <FbxAnimationViewer
-              src={src}
-              selectedAnimationName={selectedAnimationName}
-              animationState={animationState}
-              resetKey={animationResetKey}
-              onAvailableAnimations={setAvailableAnimations}
-              onPlayTimeUpdate={setFbxPlayTime}
-            />
-          </div>
-          <div className="animation-controls">
-            <button className="btn btn-sm" type="button" onClick={playAnimation}>
-              Play
-            </button>
-            <button
-              className="btn btn-sm"
-              type="button"
-              onClick={pauseAnimation}
-            >
-              Pause
-            </button>
-            <button className="btn btn-sm" type="button" onClick={stopAnimation}>
-              Stop
-            </button>
-            <button
-              className="btn btn-sm"
-              type="button"
-              onClick={resetAnimation}
-            >
-              Reset
-            </button>
-            <div
-              style={{
-                marginLeft: 12,
-                color: "var(--text-muted)",
-                fontSize: 12,
-                alignSelf: "center",
-              }}
-            >
-              Playtime: {fbxPlayTime.toFixed(2)}s
-            </div>
-            {availableAnimations.length > 0 && (
-              <select
-                className="animation-select"
-                value={selectedAnimationName || availableAnimations[0]}
-                onChange={(e) => setSelectedAnimationName(e.target.value)}
-              >
-                {availableAnimations.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+        <div className="preview-model">
+          <GlbViewer src={src} onClose={() => setPreviewFile(null)} />
         </div>
       );
     }
 
-    if (ext === ".glb" || ext === ".gltf") {
+    if (ext === ".fbx") {
       return (
-        <div className="animation-preview">
-          <div className="animation-viewer">
-            <GlbAnimationViewer
-              src={src}
-              selectedAnimationName={selectedAnimationName}
-              animationState={animationState}
-              resetKey={animationResetKey}
-              onAvailableAnimations={setAvailableAnimations}
-              onPlayTimeUpdate={setFbxPlayTime}
-              useHDRI={useHDRI}
-            />
-          </div>
-          <div className="animation-controls">
-            <button className="btn btn-sm" type="button" onClick={playAnimation}>
-              Play
-            </button>
-            <button
-              className="btn btn-sm"
-              type="button"
-              onClick={pauseAnimation}
-            >
-              Pause
-            </button>
-            <button className="btn btn-sm" type="button" onClick={stopAnimation}>
-              Stop
-            </button>
-            <button
-              className="btn btn-sm"
-              type="button"
-              onClick={resetAnimation}
-            >
-              Reset
-            </button>
-            {availableAnimations.length > 0 && (
-              <select
-                className="animation-select"
-                value={selectedAnimationName || availableAnimations[0]}
-                onChange={(e) => setSelectedAnimationName(e.target.value)}
-              >
-                {availableAnimations.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            )}
+        <div className="preview-model">
+          <div className="empty-state" style={{ margin: "auto" }}>
+            FBX animation preview is not supported yet. Use Reveal to open it externally.
           </div>
         </div>
       );
     }
 
     return (
-      <div className="empty-state">
-        No inline animation preview available for this file type ({ext || "unknown"}).
+      <div className="preview-model">
+        <div className="empty-state" style={{ margin: "auto" }}>
+          No inline animation preview available for this file type ({ext || "unknown"}).
+        </div>
       </div>
     );
   }
@@ -1552,23 +1518,58 @@ export default function FilesTab({ item, section, onChange }) {
                 ✕
               </button>
             </div>
-            <div className="modal-body" style={{ flex: 1, padding: 0 }}>
+            <div className="modal-body" style={{ flex: 1, padding: 0, height: '100%', overflow: 'hidden' }}>
               {(() => {
                 const ext = extOf(previewFile.original_name);
                 const src = toGvfileUrl(resolvedPaths[previewFile.id]);
+                console.log('[FilesTab] Modal preview for:', previewFile.original_name, 'ext:', ext, 'section:', section, 'src:', src);
                 if (IMAGE_EXTS.includes(ext)) {
                   return (
-                    <img
+                    <ImageViewer
                       src={src}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "contain",
-                      }}
+                      alt={previewFile.original_name}
+                      onClose={() => setPreviewFile(null)}
                     />
                   );
                 }
+                if (AUDIO_EXTS.includes(ext)) {
+                  return (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                      padding: '40px',
+                      background: '#222'
+                    }}>
+                      <div style={{ marginBottom: '20px', color: '#fff', fontSize: '18px' }}>
+                        {previewFile.original_name}
+                      </div>
+                      <audio
+                        controls
+                        style={{ width: '100%', maxWidth: '600px' }}
+                        src={src}
+                      >
+                        Your browser does not support the audio element.
+                      </audio>
+                    </div>
+                  );
+                }
                 if (section === "Models") {
+                  console.log('[FilesTab] Rendering model preview in modal, ext:', ext, 'src:', src);
+                  if (ext === ".glb" || ext === ".gltf") {
+                    return (
+                      <div className="preview-split" style={{ display: 'flex', flexDirection: 'row', height: '100%', gap: '10px' }}>
+                        <div style={{ flex: 2, height: '100%', minHeight: '400px' }}>
+                          <GlbViewer src={src} onClose={() => setPreviewFile(null)} />
+                        </div>
+                        <div style={{ flex: 1, height: '100%', minWidth: '300px' }}>
+                          {renderReferenceImagePanel()}
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div className="preview-split">
                       {renderModelPreview(src, ext, useHDRI)}

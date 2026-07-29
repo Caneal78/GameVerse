@@ -108,6 +108,8 @@ function hashFile(filePath) {
  * @throws {Error} If source file not found
  */
 function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
+  console.log('[files] importFile called:', { sourcePath, section, mode, item });
+  
   if (!fs.existsSync(sourcePath)) {
     throw new Error(`Source file not found: ${sourcePath}`);
   }
@@ -116,6 +118,8 @@ function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
   const slotKey = originalName.toLowerCase();
   const ext = path.extname(originalName);
   const stat = fs.statSync(sourcePath);
+
+  console.log('[files] File info:', { originalName, slotKey, ext, size: stat.size });
 
   // Determine next version number for this slot
   const existing = db
@@ -138,13 +142,25 @@ function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
     const destDir = path.join(itemDir, sectionFolder);
     ensureDir(destDir);
 
+    console.log('[files] Destination directory:', destDir);
+
     const versionedName =
       nextVersion > 1
         ? `${path.basename(originalName, ext)}_v${nextVersion}${ext}`
         : originalName;
     const destPath = path.join(destDir, versionedName);
 
+    console.log('[files] Copying from:', sourcePath, 'to:', destPath);
+
     fs.copyFileSync(sourcePath, destPath);
+    
+    console.log('[files] File copied successfully, verifying...');
+    if (!fs.existsSync(destPath)) {
+      console.error('[files] ERROR: Destination file does not exist after copy!');
+    } else {
+      console.log('[files] Destination file exists, size:', fs.statSync(destPath).size);
+    }
+
     if (mode === "move") {
       try {
         fs.unlinkSync(sourcePath);
@@ -154,6 +170,7 @@ function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
     }
 
     storedPath = path.relative(projectPath, destPath);
+    console.log('[files] Stored path (relative):', storedPath);
   }
 
   // Mark previous versions of this slot as not-current

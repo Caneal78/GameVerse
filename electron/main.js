@@ -218,8 +218,10 @@ app.whenReady().then(() => {
   protocol.registerFileProtocol("gvfile", (request, callback) => {
     try {
       const originalUrl = request.url;
+      console.log('[gvfile] Request received:', originalUrl);
       let filePath = originalUrl.replace(/^gvfile:(?:\/\/\/|\/\/|\/)?/, "");
       filePath = decodeURIComponent(filePath || "");
+      console.log('[gvfile] Extracted filePath:', filePath);
 
       if (/^\\+/.test(filePath)) {
         filePath = filePath.replace(/^\\+/, "\\\\");
@@ -244,7 +246,7 @@ app.whenReady().then(() => {
       }
 
       if (!fs.existsSync(normalizedPath)) {
-        console.error("gvfile protocol failed to resolve:", {
+        console.error("[gvfile] File not found:", {
           originalUrl,
           filePath,
           normalizedPath,
@@ -252,14 +254,17 @@ app.whenReady().then(() => {
         return callback({ error: -6 });
       }
 
+      console.log('[gvfile] File exists, checking permissions:', normalizedPath);
+
       if (!isAllowedGvfilePath(normalizedPath)) {
         console.error(
-          "gvfile protocol denied path outside vault:",
+          "[gvfile] Path denied - outside vault:",
           normalizedPath,
         );
         return callback({ error: -6 });
       }
 
+      console.log('[gvfile] Path allowed, serving file:', normalizedPath);
       return callback({ path: normalizedPath });
     } catch (e) {
       console.error("gvfile protocol error:", e);
@@ -297,14 +302,36 @@ function requireProject() {
  * @returns {boolean}
  */
 function isAllowedGvfilePath(normalizedPath) {
-  if (!currentProject) return false;
+  console.log('[gvfile] isAllowedGvfilePath called:', { normalizedPath, currentProject });
+  
+  if (!currentProject) {
+    console.log('[gvfile] No current project, denying access');
+    return false;
+  }
 
   const resolved = path.resolve(normalizedPath);
   const vaultRoot = path.resolve(currentProject.projectPath);
+  
+  // Normalize paths to handle Windows path separators and case consistently
+  const normalizedResolved = resolved.replace(/\\/g, '/').toLowerCase();
+  const normalizedVaultRoot = vaultRoot.replace(/\\/g, '/').toLowerCase();
+  
+  console.log('[gvfile] Path comparison:', { 
+    resolved, 
+    vaultRoot, 
+    normalizedResolved, 
+    normalizedVaultRoot,
+    sep: path.sep 
+  });
 
-  if (resolved === vaultRoot || resolved.startsWith(vaultRoot + path.sep)) {
+  // Check if path is within vault using normalized paths
+  if (normalizedResolved === normalizedVaultRoot || 
+      normalizedResolved.startsWith(normalizedVaultRoot + '/')) {
+    console.log('[gvfile] Path is within vault, allowing access');
     return true;
   }
+
+  console.log('[gvfile] Path is not within vault, checking linked paths');
 
   const linkedPaths = currentProject.db
     .prepare("SELECT stored_path FROM files WHERE is_linked = 1")
@@ -312,7 +339,9 @@ function isAllowedGvfilePath(normalizedPath) {
 
   for (const { stored_path } of linkedPaths) {
     try {
-      if (path.resolve(stored_path) === resolved) {
+      const normalizedLinked = path.resolve(stored_path).replace(/\\/g, '/').toLowerCase();
+      if (normalizedLinked === normalizedResolved) {
+        console.log('[gvfile] Path is linked file, allowing access');
         return true;
       }
     } catch {
@@ -320,6 +349,7 @@ function isAllowedGvfilePath(normalizedPath) {
     }
   }
 
+  console.log('[gvfile] Path denied - not in vault or linked paths');
   return false;
 }
 
@@ -617,14 +647,19 @@ ipcMain.handle(
     const item = db.prepare("SELECT * FROM items WHERE id = ?").get(itemId);
     if (!item) throw new Error("Item not found");
 
+    console.log('[Electron] files:importDialog called:', { itemId, section, mode, item });
+
     const result = await dialog.showOpenDialog(mainWindow, {
       title: `Import ${section}`,
       properties: ["openFile", "multiSelections"],
     });
     if (result.canceled) return { canceled: true, files: [] };
 
+    console.log('[Electron] Files selected:', result.filePaths);
+
     const imported = [];
     for (const sourcePath of result.filePaths) {
+      console.log('[Electron] Importing file:', sourcePath);
       const rec = filesLib.importFile(
         db,
         projectPath,
@@ -633,8 +668,10 @@ ipcMain.handle(
         sourcePath,
         mode || "copy",
       );
+      console.log('[Electron] File imported:', rec);
       imported.push(rec);
     }
+    console.log('[Electron] Total files imported:', imported.length);
     return { canceled: false, files: imported };
   },
 );
@@ -736,7 +773,30 @@ ipcMain.handle("files:setThumbnail", async (event, { itemId }) => {
  */
 ipcMain.handle("files:resolvePath", (event, storedPath) => {
   const { projectPath } = requireProject();
-  return filesLib.resolveStoredPath(projectPath, storedPath);
+  console.log('[Electron] files:resolvePath called:', { storedPath, projectPath });
+  const resolved = filesLib.resolveStoredPath(projectPath, storedPath);
+  console.log('[Electron] Resolved path:', resolved);
+  return resolved;
+});
+
+ipcMain.handle("files:readAsArrayBuffer", async (event, filePath) => {
+  console.log('[Electron] files:readAsArrayBuffer called:', filePath);
+  
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+
+  const buffer = fs.readFileSync(filePath);
+  console.log('[Electron] File read, size:', buffer.length);
+  
+  // Convert to ArrayBuffer (need to copy the underlying data)
+  const arrayBuffer = new ArrayBuffer(buffer.length);
+  const view = new Uint8Array(arrayBuffer);
+  for (let i = 0; i < buffer.length; i++) {
+    view[i] = buffer[i];
+  }
+  
+  return arrayBuffer;
 });
 
 // ---------- Search ----------
