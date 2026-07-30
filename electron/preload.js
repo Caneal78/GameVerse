@@ -126,6 +126,28 @@ contextBridge.exposeInMainWorld("gameverse", {
     },
     reveal: (exportPath) => ipcRenderer.invoke("export:reveal", exportPath),
   },
+  exportCollection: {
+    run: (collectionId) => ipcRenderer.invoke("export:collection", collectionId),
+    runWithProgress: (collectionId, onProgress) => {
+      // Remove old listener if exists
+      const listener = (event, data) => {
+        if (data.collectionId === collectionId) {
+          onProgress(data.current, data.total, data.message);
+        }
+      };
+      ipcRenderer.on("export:progress", listener);
+      
+      // Call the export
+      const promise = ipcRenderer.invoke("export:collection", collectionId);
+      
+      // Clean up listener after completion
+      promise.finally(() => {
+        ipcRenderer.removeListener("export:progress", listener);
+      });
+      
+      return promise;
+    },
+  },
   blender: {
     openItem: (itemId) => ipcRenderer.invoke("blender:openItem", itemId),
   },

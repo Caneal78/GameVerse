@@ -38,6 +38,26 @@ export default function CollectionsPage() {
     load();
   }
 
+  async function handleExport(id, e) {
+    e.stopPropagation();
+    const collection = collections.find(c => c.id === id);
+    if (!collection) return;
+
+    if (!confirm(`Export "${collection.name}" as an asset pack?`)) return;
+
+    try {
+      const result = await window.gameverse.exportCollection.run(id);
+      showToast(`Exported ${result.itemCount} items with ${result.fileCount} files to ${result.exportRoot}`, 'success');
+
+      // Ask if user wants to reveal the folder
+      if (confirm('Open the export folder in file manager?')) {
+        await window.gameverse.exportItem.reveal(result.exportRoot);
+      }
+    } catch (error) {
+      showToast(`Failed to export collection: ${error.message}`, 'error');
+    }
+  }
+
   return (
     <Layout>
       <div className="dashboard-header">
@@ -64,9 +84,14 @@ export default function CollectionsPage() {
                 <div className="item-card-body">
                   <div className="item-card-name">{c.name}</div>
                   <div className="item-card-category">{c.description || 'No description'}</div>
-                  <button className="btn btn-sm btn-danger" style={{ marginTop: 8 }} onClick={(e) => handleDelete(c.id, e)}>
-                    Delete
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: 8 }}>
+                    <button className="btn btn-sm btn-primary" onClick={(e) => handleExport(c.id, e)}>
+                      Export Pack
+                    </button>
+                    <button className="btn btn-sm btn-danger" onClick={(e) => handleDelete(c.id, e)}>
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

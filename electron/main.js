@@ -30,7 +30,7 @@ ipcMain.handle('assets:import', async (event, { name, type, sourcePath }) => {
 
 const filesLib = require("./lib/files");
 const { search } = require("./lib/searchIndex");
-const { exportItem, exportItemWithProgress } = require("./lib/exportItem");
+const { exportItem, exportItemWithProgress, exportCollection } = require("./lib/exportItem");
 const { createBackup } = require("./lib/backup");
 
 /**
@@ -995,6 +995,22 @@ ipcMain.handle("export:itemWithProgress", (event, itemId) => {
   
   return exportItemWithProgress(db, projectPath, itemId, (current, total) => {
     event.sender.send("export:progress", { current, total, itemId });
+  });
+});
+
+/**
+ * IPC Handler: Export a collection as an asset pack
+ * Creates a complete asset pack with all items, files, and marketplace metadata.
+ *
+ * @param {IpcMainInvokeEvent} event - IPC event
+ * @param {string} collectionId - Collection UUID to export
+ * @returns {{itemCount: number, fileCount: number}} Export metadata
+ */
+ipcMain.handle("export:collection", (event, collectionId) => {
+  const { db, projectPath } = requireProject();
+  
+  return exportCollection(db, projectPath, collectionId, (current, total, message) => {
+    event.sender.send("export:progress", { current, total, message, collectionId });
   });
 });
 
