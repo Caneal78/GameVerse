@@ -128,8 +128,8 @@ export default function CreateItemModal({ defaultCategory, onClose, onCreated })
   };
 
   return (
-    <div className="modal-overlay" onClick={() => !busy && onClose()}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onMouseDown={() => !busy && onClose()}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>Create Item</h3>
         </div>

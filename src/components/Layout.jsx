@@ -11,6 +11,7 @@ import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useProject } from '../context/ProjectContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
+import AssetInspector from './AssetInspector/AssetInspector.jsx';
 import '../styles/layout.css';
 
 const CATEGORIES = [
@@ -25,6 +26,7 @@ const CATEGORIES = [
  * @property {React.ReactNode} children - Main content to render
  * @property {string|null} [activeCategory] - Currently selected category filter
  * @property {function} [onCategoryChange] - Callback when category changes
+ * @property {string|null} [selectedFileId] - Currently selected file ID for inspector
  */
 
 /**
@@ -33,7 +35,7 @@ const CATEGORIES = [
  * @param {LayoutProps} props - Component props
  * @returns {React.ReactNode} Rendered layout
  */
-export default function Layout({ children, activeCategory, onCategoryChange }) {
+export default function Layout({ children, activeCategory, onCategoryChange, selectedFileId }) {
   const { project, closeProject } = useProject();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -129,6 +131,8 @@ export default function Layout({ children, activeCategory, onCategoryChange }) {
       </aside>
 
       <main className="main-content">{children}</main>
+
+      <AssetInspector selectedFileId={selectedFileId} />
     </div>
   );
 }

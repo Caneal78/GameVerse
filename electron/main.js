@@ -17,6 +17,7 @@ const path = require("path");
 const fs = require("fs");
 const http = require("http");
 const { spawnSync, spawn } = require("child_process");
+const { v4: uuidv4 } = require("uuid");
 
 const vault = require("./lib/vault");
 const itemRepo = require("./lib/itemRepo");
@@ -223,26 +224,28 @@ app.whenReady().then(() => {
       filePath = decodeURIComponent(filePath || "");
       console.log('[gvfile] Extracted filePath:', filePath);
 
-      if (/^\\+/.test(filePath)) {
-        filePath = filePath.replace(/^\\+/, "\\\\");
-      }
-
-      if (/^[A-Za-z][\\/]/.test(filePath) && !/^[A-Za-z]:/.test(filePath)) {
+      // Handle Windows drive letter format (e.g., C:/path or C:\path)
+      if (/^[A-Za-z]:/.test(filePath)) {
+        // Already has drive letter, normalize separators
+        filePath = filePath.replace(/\//g, path.sep);
+      } else if (/^[A-Za-z][\\/]/.test(filePath) && !/^[A-Za-z]:/.test(filePath)) {
+        // Missing colon after drive letter
         filePath = `${filePath[0]}:${filePath.slice(1)}`;
+        filePath = filePath.replace(/\//g, path.sep);
       }
 
-      if (/^[\\/][A-Za-z]:/.test(filePath)) {
-        filePath = filePath.slice(1);
+      // Remove leading separators if they exist
+      if (/^[\\/]+/.test(filePath)) {
+        filePath = filePath.replace(/^[\\/]+/, "");
       }
 
       filePath = filePath.replace(/\\/g, path.sep).replace(/\//g, path.sep);
       let normalizedPath = path.normalize(filePath);
 
-      if (!fs.existsSync(normalizedPath)) {
-        const alternate = path.resolve(filePath);
-        if (fs.existsSync(alternate)) {
-          normalizedPath = alternate;
-        }
+      // If path is relative, try resolving from project path
+      if (!path.isAbsolute(normalizedPath) && currentProject) {
+        const projectRoot = path.resolve(currentProject.projectPath);
+        normalizedPath = path.normalize(path.join(projectRoot, normalizedPath));
       }
 
       if (!fs.existsSync(normalizedPath)) {
@@ -1021,6 +1024,272 @@ ipcMain.handle("export:collection", (event, collectionId) => {
  */
 ipcMain.handle("export:reveal", (event, exportPath) => {
   shell.openPath(exportPath);
+});
+
+/**
+ * IPC Handler: Get file details for Asset Inspector
+ * Returns complete file information including metadata, item info, tags, etc.
+ *
+ * @param {string} fileId - File UUID to inspect
+ * @returns {Object} Complete file details
+ */
+ipcMain.handle("inspector:getFileDetails", (event, fileId) => {
+  const { db, projectPath } = requireProject();
+  
+  const file = db.prepare("SELECT * FROM files WHERE id = ?").get(fileId);
+  if (!file) throw new Error("File not found");
+  
+  const item = db.prepare("SELECT * FROM items WHERE id = ?").get(file.item_id);
+  if (!item) throw new Error("Item not found");
+  
+  const tags = db
+    .prepare(`SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = ?`)
+    .all(item.id)
+    .map((r) => r.name);
+  
+  const fields = db.prepare("SELECT field_key, field_value FROM item_fields WHERE item_id = ?").all(item.id);
+  
+  const collections = db
+    .prepare(`
+      SELECT c.id, c.name, c.description 
+      FROM collections c
+      JOIN collection_items ci ON ci.collection_id = c.id
+      WHERE ci.item_id = ?
+    `)
+    .all(item.id);
+  
+  // Parse metadata JSON
+  let metadata = {};
+  try {
+    metadata = file.metadata ? JSON.parse(file.metadata) : {};
+  } catch (e) {
+    console.error('[Inspector] Failed to parse file metadata:', e);
+  }
+  
+  return {
+    file: {
+      ...file,
+      metadata
+    },
+    item: {
+      ...item,
+      tags,
+      fields: fields.reduce((acc, f) => ({ ...acc, [f.field_key]: f.field_value }), {})
+    },
+    collections,
+    projectPath
+  };
+});
+
+/**
+ * IPC Handler: Get item details for Asset Inspector
+ * Returns complete item information including all files, tags, fields, notes.
+ *
+ * @param {string} itemId - Item UUID to inspect
+ * @returns {Object} Complete item details
+ */
+ipcMain.handle("inspector:getItemDetails", (event, itemId) => {
+  const { db, projectPath } = requireProject();
+  
+  const item = db.prepare("SELECT * FROM items WHERE id = ?").get(itemId);
+  if (!item) throw new Error("Item not found");
+  
+  const files = db.prepare("SELECT * FROM files WHERE item_id = ? AND is_current = 1 ORDER BY section, created_at").all(itemId);
+  
+  const tags = db
+    .prepare(`SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = ?`)
+    .all(itemId)
+    .map((r) => r.name);
+  
+  const fields = db.prepare("SELECT field_key, field_value FROM item_fields WHERE item_id = ?").all(itemId);
+  
+  const notes = db.prepare("SELECT * FROM notes WHERE item_id = ? ORDER BY created_at").all(itemId);
+  
+  const collections = db
+    .prepare(`
+      SELECT c.id, c.name, c.description 
+      FROM collections c
+      JOIN collection_items ci ON ci.collection_id = c.id
+      WHERE ci.item_id = ?
+    `)
+    .all(itemId);
+  
+  const links = db
+    .prepare(`
+      SELECT 
+        l.relationship,
+        CASE 
+          WHEN l.item_a = ? THEN l.item_b
+          ELSE l.item_a
+        END as linked_item_id,
+        i.name as linked_item_name,
+        i.category as linked_item_category
+      FROM links l
+      JOIN items i ON (CASE WHEN l.item_a = ? THEN l.item_b ELSE l.item_a END) = i.id
+      WHERE l.item_a = ? OR l.item_b = ?
+    `)
+    .all(itemId, itemId, itemId, itemId);
+  
+  // Parse file metadata
+  const filesWithMetadata = files.map(file => {
+    let metadata = {};
+    try {
+      metadata = file.metadata ? JSON.parse(file.metadata) : {};
+    } catch (e) {
+      console.error('[Inspector] Failed to parse file metadata:', e);
+    }
+    return { ...file, metadata };
+  });
+  
+  return {
+    item: {
+      ...item,
+      tags,
+      fields: fields.reduce((acc, f) => ({ ...acc, [f.field_key]: f.field_value }), {})
+    },
+    files: filesWithMetadata,
+    notes,
+    collections,
+    links,
+    projectPath
+  };
+});
+
+/**
+ * IPC Handler: Update file metadata
+ *
+ * @param {string} fileId - File UUID to update
+ * @param {Object} metadata - New metadata object
+ */
+ipcMain.handle("inspector:updateFileMetadata", (event, fileId, metadata) => {
+  const { db } = requireProject();
+  
+  const metadataJson = JSON.stringify(metadata);
+  db.prepare("UPDATE files SET metadata = ? WHERE id = ?").run(metadataJson, fileId);
+  
+  return { success: true };
+});
+
+// ---------- Asset Tags (for files) ----------
+
+ipcMain.handle("assetTags:list", () => {
+  const { db } = requireProject();
+  return db.prepare("SELECT * FROM asset_tag_definitions ORDER BY name").all();
+});
+
+ipcMain.handle("assetTags:create", (event, { name, color }) => {
+  const { db } = requireProject();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare("INSERT INTO asset_tag_definitions (id, name, color, created_at) VALUES (?, ?, ?, ?)")
+    .run(id, name, color || 'gray', now);
+  return db.prepare("SELECT * FROM asset_tag_definitions WHERE id = ?").get(id);
+});
+
+ipcMain.handle("assetTags:update", (event, { id, name, color }) => {
+  const { db } = requireProject();
+  db.prepare("UPDATE asset_tag_definitions SET name = ?, color = ? WHERE id = ?")
+    .run(name, color, id);
+  return db.prepare("SELECT * FROM asset_tag_definitions WHERE id = ?").get(id);
+});
+
+ipcMain.handle("assetTags:delete", (event, id) => {
+  const { db } = requireProject();
+  db.prepare("DELETE FROM asset_tag_definitions WHERE id = ?").run(id);
+  return { success: true };
+});
+
+ipcMain.handle("assetTags:addToFile", (event, { fileId, tagId }) => {
+  const { db } = requireProject();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare("INSERT OR IGNORE INTO asset_file_tags (id, file_id, tag_id, created_at) VALUES (?, ?, ?, ?)")
+    .run(id, fileId, tagId, now);
+  return { success: true };
+});
+
+ipcMain.handle("assetTags:removeFromFile", (event, { fileId, tagId }) => {
+  const { db } = requireProject();
+  db.prepare("DELETE FROM asset_file_tags WHERE file_id = ? AND tag_id = ?").run(fileId, tagId);
+  return { success: true };
+});
+
+ipcMain.handle("assetTags:getForFile", (event, fileId) => {
+  const { db } = requireProject();
+  return db.prepare(`
+    SELECT t.* FROM asset_tag_definitions t
+    JOIN asset_file_tags at ON at.tag_id = t.id
+    WHERE at.file_id = ?
+    ORDER BY t.name
+  `).all(fileId);
+});
+
+// ---------- Favorites ----------
+
+ipcMain.handle("favorites:list", () => {
+  const { db } = requireProject();
+  return db.prepare(`
+    SELECT f.*, file.original_name, file.section, file.stored_path
+    FROM favorites f
+    JOIN files file ON file.id = f.file_id
+    ORDER BY f.created_at DESC
+  `).all();
+});
+
+ipcMain.handle("favorites:add", (event, fileId) => {
+  const { db } = requireProject();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare("INSERT OR IGNORE INTO favorites (id, file_id, created_at) VALUES (?, ?, ?)")
+    .run(id, fileId, now);
+  return { success: true };
+});
+
+ipcMain.handle("favorites:remove", (event, fileId) => {
+  const { db } = requireProject();
+  db.prepare("DELETE FROM favorites WHERE file_id = ?").run(fileId);
+  return { success: true };
+});
+
+ipcMain.handle("favorites:isFavorite", (event, fileId) => {
+  const { db } = requireProject();
+  const result = db.prepare("SELECT * FROM favorites WHERE file_id = ?").get(fileId);
+  return !!result;
+});
+
+// ---------- Saved Searches ----------
+
+ipcMain.handle("savedSearches:list", () => {
+  const { db } = requireProject();
+  return db.prepare("SELECT * FROM saved_searches ORDER BY name").all();
+});
+
+ipcMain.handle("savedSearches:create", (event, { name, filters, sortConfig }) => {
+  const { db } = requireProject();
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO saved_searches (id, name, filters_json, sort_config_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, name, JSON.stringify(filters), JSON.stringify(sortConfig || {}), now, now);
+  return db.prepare("SELECT * FROM saved_searches WHERE id = ?").get(id);
+});
+
+ipcMain.handle("savedSearches:update", (event, { id, name, filters, sortConfig }) => {
+  const { db } = requireProject();
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE saved_searches 
+    SET name = ?, filters_json = ?, sort_config_json = ?, updated_at = ?
+    WHERE id = ?
+  `).run(name, JSON.stringify(filters), JSON.stringify(sortConfig || {}), now, id);
+  return db.prepare("SELECT * FROM saved_searches WHERE id = ?").get(id);
+});
+
+ipcMain.handle("savedSearches:delete", (event, id) => {
+  const { db } = requireProject();
+  db.prepare("DELETE FROM saved_searches WHERE id = ?").run(id);
+  return { success: true };
 });
 
 ipcMain.handle("settings:get", () => {

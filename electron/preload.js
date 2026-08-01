@@ -167,4 +167,30 @@ contextBridge.exposeInMainWorld("gameverse", {
   assets: {
     import: ({ name, type, sourcePath }) => ipcRenderer.invoke('assets:import', { name, type, sourcePath })
   },
+  inspector: {
+    getFileDetails: (fileId) => ipcRenderer.invoke("inspector:getFileDetails", fileId),
+    getItemDetails: (itemId) => ipcRenderer.invoke("inspector:getItemDetails", itemId),
+    updateFileMetadata: (fileId, metadata) => ipcRenderer.invoke("inspector:updateFileMetadata", fileId, metadata),
+  },
+  assetTags: {
+    list: () => ipcRenderer.invoke("assetTags:list"),
+    create: (name, color) => ipcRenderer.invoke("assetTags:create", { name, color }),
+    update: (id, name, color) => ipcRenderer.invoke("assetTags:update", { id, name, color }),
+    delete: (id) => ipcRenderer.invoke("assetTags:delete", id),
+    addToFile: (fileId, tagId) => ipcRenderer.invoke("assetTags:addToFile", { fileId, tagId }),
+    removeFromFile: (fileId, tagId) => ipcRenderer.invoke("assetTags:removeFromFile", { fileId, tagId }),
+    getForFile: (fileId) => ipcRenderer.invoke("assetTags:getForFile", fileId),
+  },
+  favorites: {
+    list: () => ipcRenderer.invoke("favorites:list"),
+    add: (fileId) => ipcRenderer.invoke("favorites:add", fileId),
+    remove: (fileId) => ipcRenderer.invoke("favorites:remove", fileId),
+    isFavorite: (fileId) => ipcRenderer.invoke("favorites:isFavorite", fileId),
+  },
+  savedSearches: {
+    list: () => ipcRenderer.invoke("savedSearches:list"),
+    create: (name, filters, sortConfig) => ipcRenderer.invoke("savedSearches:create", { name, filters, sortConfig }),
+    update: (id, name, filters, sortConfig) => ipcRenderer.invoke("savedSearches:update", { id, name, filters, sortConfig }),
+    delete: (id) => ipcRenderer.invoke("savedSearches:delete", id),
+  },
 });

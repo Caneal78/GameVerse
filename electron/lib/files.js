@@ -131,11 +131,13 @@ function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
 
   let storedPath; // relative to projectPath
   let isLinked = 0;
+  let destPath; // actual file path for metadata extraction
 
   if (mode === "link") {
     // Store the absolute external path directly - no copying
     storedPath = sourcePath;
     isLinked = 1;
+    destPath = sourcePath;
   } else {
     const sectionFolder = SECTION_TO_ASSET_SUBFOLDER[section] || section;
     const itemDir = getItemAssetDir(projectPath, item);
@@ -148,7 +150,7 @@ function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
       nextVersion > 1
         ? `${path.basename(originalName, ext)}_v${nextVersion}${ext}`
         : originalName;
-    const destPath = path.join(destDir, versionedName);
+    destPath = path.join(destDir, versionedName);
 
     console.log('[files] Copying from:', sourcePath, 'to:', destPath);
 
@@ -180,7 +182,10 @@ function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
 
   const id = uuidv4();
   const now = new Date().toISOString();
-  const metadata = extractBasicMetadata(section, ext);
+  
+  // Use the actual file path for metadata extraction
+  const metadataPath = mode === "link" ? sourcePath : destPath;
+  const metadata = extractBasicMetadata(section, ext, metadataPath);
 
   db.prepare(
     `INSERT INTO files
@@ -219,19 +224,114 @@ function importFile(db, projectPath, item, section, sourcePath, mode = "copy") {
 }
 
 /**
+ * Extract vertex and face count from a GLB file
+ * Parses the GLB binary format to count geometry data.
+ *
+ * @param {string} filePath - Path to GLB file
+ * @returns {{vertexCount: number, faceCount: number}} Vertex and face counts
+ */
+function extractGLBStats(filePath) {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    
+    // GLB file structure: 12-byte header + chunks
+    // Header: magic (4) + version (4) + length (4)
+    if (buffer.length < 12) return { vertexCount: 0, faceCount: 0 };
+    
+    const magic = buffer.readUInt32LE(0);
+    if (magic !== 0x46546C67) return { vertexCount: 0, faceCount: 0 }; // Not a valid GLB
+    
+    let offset = 12;
+    let vertexCount = 0;
+    let faceCount = 0;
+    
+    while (offset < buffer.length) {
+      if (offset + 8 > buffer.length) break;
+      
+      const chunkLength = buffer.readUInt32LE(offset);
+      const chunkType = buffer.readUInt32LE(offset + 4);
+      
+      if (offset + 8 + chunkLength > buffer.length) break;
+      
+      // JSON chunk (chunkType = 0x4E4F534A)
+      if (chunkType === 0x4E4F534A) {
+        const jsonStr = buffer.toString('utf8', offset + 8, offset + 8 + chunkLength);
+        try {
+          const gltf = JSON.parse(jsonStr);
+          
+          // Count vertices and faces from all meshes
+          if (gltf.meshes) {
+            for (const mesh of gltf.meshes) {
+              if (mesh.primitives) {
+                for (const primitive of mesh.primitives) {
+                  // Get vertex count from POSITION accessor
+                  if (primitive.attributes && primitive.attributes.POSITION) {
+                    const accessor = gltf.accessors[primitive.attributes.POSITION];
+                    if (accessor) {
+                      vertexCount += accessor.count || 0;
+                    }
+                  }
+                  
+                  // Get face count from indices accessor
+                  if (primitive.indices !== undefined) {
+                    const accessor = gltf.accessors[primitive.indices];
+                    if (accessor) {
+                      // Indices count / 3 = triangle count (assuming triangles)
+                      faceCount += Math.floor((accessor.count || 0) / 3);
+                    }
+                  } else if (primitive.attributes && primitive.attributes.POSITION) {
+                    // No indices, assume non-indexed triangles
+                    const accessor = gltf.accessors[primitive.attributes.POSITION];
+                    if (accessor) {
+                      faceCount += Math.floor((accessor.count || 0) / 3);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[files] Failed to parse GLB JSON:', e);
+        }
+      }
+      
+      offset += 8 + chunkLength;
+    }
+    
+    return { vertexCount, faceCount };
+  } catch (error) {
+    console.error('[files] Failed to extract GLB stats:', error);
+    return { vertexCount: 0, faceCount: 0 };
+  }
+}
+
+/**
  * Extract basic metadata based on file section and extension
  * Returns a metadata object with section-specific fields.
  *
  * @param {string} section - File section
  * @param {string} ext - File extension (with dot)
+ * @param {string} [filePath] - Optional file path for detailed extraction
  * @returns {Object} Metadata object
  */
-function extractBasicMetadata(section, ext) {
+function extractBasicMetadata(section, ext, filePath) {
   const e = ext.toLowerCase();
   if (section === "Models") {
+    let vertexCount = 0;
+    let faceCount = 0;
+    
+    // Extract vertex/face count for GLB files
+    if ((e === '.glb' || e === '.gltf') && filePath) {
+      const stats = extractGLBStats(filePath);
+      vertexCount = stats.vertexCount;
+      faceCount = stats.faceCount;
+    }
+    
     return {
       format: e.replace(".", "").toUpperCase(),
-      polyCount: null,
+      vertexCount,
+      faceCount,
+      polyCount: faceCount, // Keep polyCount for backward compatibility
       materials: [],
       textures: [],
       rig: null,
@@ -338,7 +438,9 @@ function resolveStoredPath(projectPath, storedPath) {
   if (resolved === projectRoot || resolved.startsWith(projectPrefix)) {
     return resolved;
   }
-  return null;
+  // For linked files, the stored_path might be absolute but outside project
+  // Return it anyway - security check happens in gvfile protocol handler
+  return resolved;
 }
 
 /**

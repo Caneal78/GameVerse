@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout.jsx';
 import { useToast } from '../context/ToastContext.jsx';
@@ -10,6 +10,7 @@ export default function CollectionsPage() {
   const [showModal, setShowModal] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const nameInputRef = useRef(null);
 
   async function load() {
     const list = await window.gameverse.collections.list();
@@ -17,6 +18,12 @@ export default function CollectionsPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (showModal && nameInputRef.current) {
+      nameInputRef.current.focus();
+    }
+  }, [showModal]);
 
   async function handleCreate() {
     if (!name.trim()) {
@@ -100,13 +107,19 @@ export default function CollectionsPage() {
       </div>
 
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onMouseDown={() => setShowModal(false)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
             <div className="modal-header"><h3>New Collection</h3></div>
             <div className="modal-body">
               <div className="field-group">
                 <label>Name</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Swamp Biome" autoFocus />
+                <input
+                  type="text"
+                  ref={nameInputRef}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Swamp Biome"
+                />
               </div>
               <div className="field-group">
                 <label>Description</label>

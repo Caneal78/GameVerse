@@ -1,4 +1,5 @@
 import React from "react";
+import { error as logError } from "../utils/Logger.js";
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -11,7 +12,7 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    console.error("GameVerse UI error:", error, info);
+    logError('ErrorBoundary', error, info);
   }
 
   render() {

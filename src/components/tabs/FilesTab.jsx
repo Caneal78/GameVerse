@@ -7,11 +7,30 @@
  * @component FilesTab
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useToast } from "../../context/ToastContext.jsx";
 import { toGvfileUrl } from "../../utils/gvfileUrl.js";
 import ImageViewer from "../ImageViewer.jsx";
 import GlbViewer from "../GlbViewer.jsx";
+import ThreeModelViewer from "../viewers/ThreeModelViewer.jsx";
+import FbxAnimationViewer from "../viewers/FbxAnimationViewer.jsx";
+import GlbAnimationViewer from "../viewers/GlbAnimationViewer.jsx";
+import AssetGrid from "../files/AssetGrid.jsx";
+import AssetList from "../files/AssetList.jsx";
+import AssetToolbar from "../files/AssetToolbar.jsx";
+import TagBadge from "../files/TagBadge.jsx";
+import TagPicker from "../files/TagPicker.jsx";
+import FavoritesFilter from "../files/FavoritesFilter.jsx";
+import BatchToolbar from "../files/BatchToolbar.jsx";
+import SavedSearches from "../files/SavedSearches.jsx";
+
+/**
+ * FilesTab component props
+ * 
+ * @typedef {Object} FilesTabProps
+ * @property {string} itemId - Item ID
+ * @property {function} [onFileSelect] - Callback when a file is selected
+ */
 /**
  * Supported 3D model file extensions
  * @type {string[]}
@@ -46,828 +65,6 @@ function extOf(name) {
   return i >= 0 ? name.slice(i).toLowerCase() : "";
 }
 
-function ThreeModelViewer({ src, autoRotate = true, useHDRI = false }) {
-  const containerRef = useRef(null);
-  const rendererRef = useRef(null);
-  const sceneRef = useRef(null);
-  const cameraRef = useRef(null);
-  const controlsRef = useRef(null);
-  const rafRef = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      const THREE = await import("three");
-      const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
-      const { OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js");
-
-      if (cancelled || !containerRef.current) return;
-
-      const container = containerRef.current;
-      container.style.position = "relative";
-      container.style.width = "100%";
-      container.style.height = "100%";
-
-      const renderer = new THREE.WebGLRenderer({
-        alpha: true,
-        antialias: true,
-      });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.shadowMap.enabled = true;
-      renderer.setClearColor(0x222222, 1);
-      renderer.domElement.style.position = "absolute";
-      renderer.domElement.style.inset = "0";
-      renderer.domElement.style.width = "100%";
-      renderer.domElement.style.height = "100%";
-      container.appendChild(renderer.domElement);
-      rendererRef.current = renderer;
-
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x222222);
-      sceneRef.current = scene;
-      // HDRI environment map support – loaded only when the flag is true.
-      if (useHDRI) {
-        const { RGBELoader } = await import('three/examples/jsm/loaders/RGBELoader.js');
-        const hdrTexture = await new RGBELoader().loadAsync('/assets/hdri/default.hdr');
-        hdrTexture.mapping = THREE.EquirectangularReflectionMapping;
-        scene.environment = hdrTexture;
-      }
-      const camera = new THREE.PerspectiveCamera(
-        35,
-        container.clientWidth / Math.max(container.clientHeight, 240),
-        0.1,
-        2000
-      );
-      camera.position.set(0, 120, 240);
-      cameraRef.current = camera;
-
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.08;
-      controls.enablePan = false;
-      controls.minDistance = 0.5;
-      controls.maxDistance = 2000;
-      controls.target.set(0, 0, 0);
-      controls.update();
-      controlsRef.current = controls;
-
-      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
-      scene.add(ambient);
-
-      const hemisphere = new THREE.HemisphereLight(0xf0f8ff, 0x202020, 0.9);
-      scene.add(hemisphere);
-
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
-      keyLight.position.set(120, 220, 120);
-      keyLight.castShadow = true;
-      keyLight.shadow.mapSize.set(2048, 2048);
-      scene.add(keyLight);
-
-      const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      fillLight.position.set(-120, -80, -120);
-      scene.add(fillLight);
-
-      const grid = new THREE.GridHelper(10, 10, 0x777777, 0x333333);
-      grid.position.y = -0.6;
-      scene.add(grid);
-
-      if (!src) {
-        console.error("ThreeModelViewer: missing source URL");
-        return;
-      }
-
-      const loader = new GLTFLoader();
-      loader.load(
-        src,
-        (gltf) => {
-          if (cancelled) return;
-          const modelScene = gltf.scene || gltf.scenes?.[0];
-          if (!modelScene) return;
-
-          modelScene.traverse((child) => {
-            if (child.isMesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-              if (child.material) {
-                const applyMaterial = (material) => {
-                  material.side = THREE.DoubleSide;
-                  material.depthWrite = true;
-                  material.needsUpdate = true;
-                };
-                if (Array.isArray(child.material)) {
-                  child.material.forEach(applyMaterial);
-                } else {
-                  applyMaterial(child.material);
-                }
-              }
-            }
-          });
-
-          scene.add(modelScene);
-
-          const box = new THREE.Box3().setFromObject(modelScene);
-          const size = box.getSize(new THREE.Vector3());
-          const center = box.getCenter(new THREE.Vector3());
-          const maxSize = Math.max(size.x, size.y, size.z, 0.01);
-
-          modelScene.position.sub(center);
-          modelScene.scale.setScalar((1 / maxSize) * 1.2);
-          modelScene.updateMatrixWorld(true);
-
-          const boundingSphere = box.getBoundingSphere(new THREE.Sphere());
-          const fitDistance = Math.max(boundingSphere.radius * 0.7, maxSize * 0.6);
-          camera.position.set(
-            fitDistance * 1.2,
-            fitDistance * 0.6,
-            fitDistance * 1.2
-          );
-          camera.lookAt(0, 0, 0);
-          camera.near = Math.max(0.1, fitDistance * 0.01);
-          camera.far = Math.max(2000, fitDistance * 10);
-          camera.updateProjectionMatrix();
-
-          controls.target.set(0, 0, 0);
-          controls.minDistance = Math.max(0.01, maxSize * 0.05);
-          controls.maxDistance = fitDistance * 6;
-          controls.update();
-        },
-        undefined,
-        (error) => {
-          console.error("ThreeModelViewer loading failed:", error);
-        }
-      );
-
-      function resize() {
-        if (!renderer || !camera || !container) return;
-        camera.aspect = container.clientWidth / Math.max(container.clientHeight, 240);
-        camera.updateProjectionMatrix();
-        renderer.setSize(container.clientWidth, container.clientHeight, false);
-      }
-
-      window.addEventListener("resize", resize);
-      const resizeObserver = new ResizeObserver(() => {
-        resize();
-      });
-      resizeObserver.observe(container);
-
-      function animate() {
-        if (cancelled) return;
-        rafRef.current = requestAnimationFrame(animate);
-
-        if (autoRotate && sceneRef.current) {
-          sceneRef.current.traverse((child) => {
-            if (child.parent === sceneRef.current && child !== grid && !(child instanceof THREE.Light)) {
-              child.rotation.y += 0.005;
-            }
-          });
-        }
-
-        controls.update();
-        renderer.render(scene, camera);
-      }
-      animate();
-
-      return () => {
-        window.removeEventListener("resize", resize);
-        resizeObserver.disconnect();
-      };
-    }
-
-    let cleanupFn;
-    init().then((cleanup) => {
-      cleanupFn = cleanup;
-    });
-
-    return () => {
-      cancelled = true;
-      if (cleanupFn) cleanupFn();
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (rendererRef.current) {
-        rendererRef.current.dispose();
-        if (rendererRef.current.domElement.parentNode) {
-          rendererRef.current.domElement.parentNode.removeChild(rendererRef.current.domElement);
-        }
-      }
-    };
-  }, [src, autoRotate]);
-
-  return <div ref={containerRef} style={{ width: "100%", height: "100%", position: "relative" }} />;
-}
-
-function FbxAnimationViewer({
-  src,
-  selectedAnimationName,
-  animationState,
-  resetKey,
-  onAvailableAnimations,
-  onPlayTimeUpdate,
-}) {
-  const containerRef = useRef(null);
-  const rendererRef = useRef(null);
-  const sceneRef = useRef(null);
-  const cameraRef = useRef(null);
-  const controlsRef = useRef(null);
-  const gridRef = useRef(null);
-  const mixerRef = useRef(null);
-  const actionsRef = useRef({});
-  const activeActionRef = useRef(null);
-  const clockRef = useRef(null);
-  const elapsedTimeRef = useRef(0);
-  const rafRef = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      const THREE = await import("three");
-      const { FBXLoader } =
-        await import("three/examples/jsm/loaders/FBXLoader.js");
-      const { OrbitControls } =
-        await import("three/examples/jsm/controls/OrbitControls.js");
-      if (cancelled || !containerRef.current) return;
-
-      const container = containerRef.current;
-      container.style.position = "relative";
-      container.style.width = "100%";
-      container.style.height = "100%";
-
-      const renderer = new THREE.WebGLRenderer({
-        alpha: true,
-        antialias: true,
-      });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.shadowMap.enabled = true;
-      renderer.setClearColor(0x222222, 1);
-      renderer.domElement.style.position = "absolute";
-      renderer.domElement.style.inset = "0";
-      renderer.domElement.style.width = "100%";
-      renderer.domElement.style.height = "100%";
-      container.appendChild(renderer.domElement);
-      rendererRef.current = renderer;
-
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x222222);
-      sceneRef.current = scene;
-
-      const camera = new THREE.PerspectiveCamera(
-        35,
-        container.clientWidth / Math.max(container.clientHeight, 240),
-        0.1,
-        2000,
-      );
-      camera.position.set(0, 120, 240);
-      cameraRef.current = camera;
-
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.08;
-      controls.enablePan = false;
-      controls.minDistance = 0.5;
-      controls.maxDistance = 2000;
-      controls.target.set(0, 0, 0);
-      controls.update();
-      controlsRef.current = controls;
-
-      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
-      scene.add(ambient);
-
-      const hemisphere = new THREE.HemisphereLight(0xf0f8ff, 0x202020, 0.9);
-      scene.add(hemisphere);
-
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
-      keyLight.position.set(120, 220, 120);
-      keyLight.castShadow = true;
-      keyLight.shadow.mapSize.set(2048, 2048);
-      scene.add(keyLight);
-
-      const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      fillLight.position.set(-120, -80, -120);
-      scene.add(fillLight);
-
-      const grid = new THREE.GridHelper(10, 10, 0x777777, 0x333333);
-      grid.position.y = -1.2;
-      scene.add(grid);
-      gridRef.current = grid;
-
-      if (!src) {
-        console.error("FBX viewer: missing source URL");
-        return;
-      }
-
-      const loader = new FBXLoader();
-      loader.load(
-        src,
-        (object) => {
-          if (cancelled) return;
-          object.traverse((child) => {
-            if (child.isMesh) {
-              child.castShadow = true;
-              child.receiveShadow = true;
-              if (child.material) {
-                const applyMaterial = (material) => {
-                  material.side = THREE.DoubleSide;
-                  material.depthWrite = true;
-                  material.needsUpdate = true;
-                  if (material.transparent && material.opacity === 0) {
-                    material.opacity = 1;
-                    material.transparent = false;
-                  }
-                };
-                if (Array.isArray(child.material)) {
-                  child.material.forEach(applyMaterial);
-                } else {
-                  applyMaterial(child.material);
-                }
-              }
-            }
-          });
-
-          // Many FBX rigs import upside-down depending on exporter orientation.
-          object.rotation.x = Math.PI;
-          object.updateMatrixWorld(true);
-
-          const box = new THREE.Box3().setFromObject(object);
-          const size = box.getSize(new THREE.Vector3());
-          const center = box.getCenter(new THREE.Vector3());
-          const maxSize = Math.max(size.x, size.y, size.z, 0.01);
-
-          object.position.sub(center);
-          object.scale.setScalar((1 / maxSize) * 1.2);
-          scene.add(object);
-
-          const boxHelper = new THREE.Box3Helper(box, 0xffff00);
-          scene.add(boxHelper);
-
-          const gridScale = Math.max(maxSize * 1.5, 1);
-          if (gridRef.current) {
-            gridRef.current.scale.setScalar(gridScale);
-            gridRef.current.position.y = -maxSize * 0.4;
-          }
-
-          const axes = new THREE.AxesHelper(Math.max(maxSize * 0.6, 1));
-          scene.add(axes);
-
-          const ground = new THREE.Mesh(
-            new THREE.PlaneGeometry(maxSize * 5, maxSize * 5),
-            new THREE.MeshStandardMaterial({
-              color: 0x222222,
-              roughness: 0.9,
-              metalness: 0.1,
-            }),
-          );
-          ground.rotation.x = -Math.PI / 2;
-          ground.position.y = -maxSize * 0.5;
-          ground.receiveShadow = true;
-          scene.add(ground);
-
-          const boundingSphere = box.getBoundingSphere(new THREE.Sphere());
-          const fitDistance = Math.max(
-            boundingSphere.radius * 0.7,
-            maxSize * 0.6,
-          );
-          camera.position.set(
-            fitDistance * 1.2,
-            fitDistance * 0.6,
-            fitDistance * 1.2,
-          );
-          camera.lookAt(0, 0, 0);
-          camera.near = Math.max(0.1, fitDistance * 0.01);
-          camera.far = Math.max(2000, fitDistance * 10);
-          camera.updateProjectionMatrix();
-          if (controlsRef.current) {
-            controlsRef.current.target.set(0, 0, 0);
-            controlsRef.current.minDistance = Math.max(0.01, maxSize * 0.05);
-            controlsRef.current.maxDistance = fitDistance * 6;
-            controlsRef.current.update();
-          }
-
-          const mixer = new THREE.AnimationMixer(object);
-          mixerRef.current = mixer;
-          clockRef.current = new THREE.Clock();
-          elapsedTimeRef.current = 0;
-          onPlayTimeUpdate?.(0);
-
-          const clips = object.animations || [];
-          const animationNames = clips.map(
-            (clip, index) => clip.name || `Animation ${index + 1}`,
-          );
-
-          const actions = {};
-          clips.forEach((clip, index) => {
-            const name = animationNames[index];
-            const action = mixer.clipAction(clip);
-            action.loop = THREE.LoopRepeat;
-            action.enabled = true;
-            action.clampWhenFinished = true;
-            actions[name] = action;
-          });
-          actionsRef.current = actions;
-
-          onAvailableAnimations?.(animationNames);
-          if (animationNames.length === 0) {
-            console.warn("FBX loaded with no animation clips:", src);
-          }
-        },
-        undefined,
-        (error) => {
-          console.error("FBX animation load failed:", error);
-        },
-      );
-
-      function resize() {
-        if (!rendererRef.current || !cameraRef.current || !containerRef.current)
-          return;
-        const rect = containerRef.current.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
-        const height = Math.max(1, Math.floor(rect.height));
-        rendererRef.current.setSize(width, height, false);
-        cameraRef.current.aspect = width / Math.max(height, 240);
-        cameraRef.current.updateProjectionMatrix();
-      }
-
-      function animate() {
-        rafRef.current = requestAnimationFrame(animate);
-        const delta = clockRef.current ? clockRef.current.getDelta() : 0;
-        if (mixerRef.current && clockRef.current) {
-          if (animationState === "playing") {
-            mixerRef.current.update(delta);
-            elapsedTimeRef.current += delta;
-            onPlayTimeUpdate?.(elapsedTimeRef.current);
-          } else if (animationState === "stopped") {
-            elapsedTimeRef.current = 0;
-            onPlayTimeUpdate?.(0);
-          }
-        }
-        if (controlsRef.current) {
-          controlsRef.current.update();
-        }
-        if (rendererRef.current && scene && camera) {
-          rendererRef.current.render(scene, camera);
-        }
-      }
-
-      window.addEventListener("resize", resize);
-      requestAnimationFrame(() => {
-        resize();
-        animate();
-      });
-
-      return () => {
-        cancelled = true;
-        window.removeEventListener("resize", resize);
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        if (controlsRef.current) {
-          controlsRef.current.dispose();
-        }
-        if (rendererRef.current) {
-          rendererRef.current.dispose();
-          container.removeChild(rendererRef.current.domElement);
-        }
-      };
-    }
-
-    let cleanup;
-    init().then((result) => {
-      cleanup = result;
-    });
-    return () => {
-      cancelled = true;
-      if (cleanup && typeof cleanup === "function") cleanup();
-    };
-  }, [src, onAvailableAnimations]);
-
-  useEffect(() => {
-    const actions = actionsRef.current;
-    if (!actions || Object.keys(actions).length === 0) return;
-
-    const nextClipName = selectedAnimationName || Object.keys(actions)[0];
-    let nextAction = actions[nextClipName];
-    if (!nextAction) return;
-
-    if (activeActionRef.current && activeActionRef.current !== nextAction) {
-      activeActionRef.current.stop();
-    }
-
-    nextAction.reset();
-    nextAction.setEffectiveWeight(1);
-    nextAction.enabled = true;
-    nextAction.play();
-    nextAction.paused = animationState !== "playing";
-    activeActionRef.current = nextAction;
-  }, [selectedAnimationName, animationState]);
-
-  useEffect(() => {
-    if (resetKey === undefined) return;
-    const active = activeActionRef.current;
-    if (!active) return;
-    active.reset();
-    active.play();
-    active.paused = animationState !== "playing";
-  }, [resetKey, animationState]);
-
-  return <div ref={containerRef} className="animation-viewer" />;
-}
-
-function GlbAnimationViewer({
-  src,
-  selectedAnimationName,
-  animationState,
-  resetKey,
-  onAvailableAnimations,
-  onPlayTimeUpdate,
-}) {
-  const containerRef = useRef(null);
-  const rendererRef = useRef(null);
-  const sceneRef = useRef(null);
-  const cameraRef = useRef(null);
-  const controlsRef = useRef(null);
-  const mixerRef = useRef(null);
-  const actionsRef = useRef({});
-  const activeActionRef = useRef(null);
-  const clockRef = useRef(null);
-  const elapsedTimeRef = useRef(0);
-  const rafRef = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function init() {
-      const THREE = await import("three");
-      const { GLTFLoader } =
-        await import("three/examples/jsm/loaders/GLTFLoader.js");
-      const { OrbitControls } =
-        await import("three/examples/jsm/controls/OrbitControls.js");
-      if (cancelled || !containerRef.current) return;
-
-      const container = containerRef.current;
-      container.style.position = "relative";
-      container.style.width = "100%";
-      container.style.height = "100%";
-
-      const renderer = new THREE.WebGLRenderer({
-        alpha: true,
-        antialias: true,
-      });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.shadowMap.enabled = true;
-      renderer.setClearColor(0x222222, 1);
-      renderer.domElement.style.position = "absolute";
-      renderer.domElement.style.inset = "0";
-      renderer.domElement.style.width = "100%";
-      renderer.domElement.style.height = "100%";
-      container.appendChild(renderer.domElement);
-      rendererRef.current = renderer;
-
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x222222);
-      sceneRef.current = scene;
-
-      const camera = new THREE.PerspectiveCamera(
-        35,
-        container.clientWidth / Math.max(container.clientHeight, 240),
-        0.1,
-        2000,
-      );
-      camera.position.set(0, 120, 240);
-      cameraRef.current = camera;
-
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.08;
-      controls.enablePan = false;
-      controls.minDistance = 0.5;
-      controls.maxDistance = 2000;
-      controls.target.set(0, 0, 0);
-      controls.update();
-      controlsRef.current = controls;
-
-      const ambient = new THREE.AmbientLight(0xffffff, 0.75);
-      scene.add(ambient);
-
-      const hemisphere = new THREE.HemisphereLight(0xf0f8ff, 0x202020, 0.9);
-      scene.add(hemisphere);
-
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
-      keyLight.position.set(120, 220, 120);
-      keyLight.castShadow = true;
-      keyLight.shadow.mapSize.set(2048, 2048);
-      scene.add(keyLight);
-
-      const fillLight = new THREE.DirectionalLight(0xffffff, 0.8);
-      fillLight.position.set(-120, -80, -120);
-      scene.add(fillLight);
-
-      if (!src) {
-        console.error("GLB animation viewer: missing source URLs");
-        return;
-      }
-
-      const loader = new GLTFLoader();
-      const loadScene = () =>
-        new Promise((resolve, reject) => {
-          loader.load(src, resolve, undefined, reject);
-        });
-
-      let sceneGltf;
-      try {
-        sceneGltf = await loadScene();
-      } catch (error) {
-        console.error("GLB animation load failed:", error);
-        return;
-      }
-
-      if (cancelled) return;
-
-      const modelScene = sceneGltf.scene || sceneGltf.scenes?.[0];
-      const animationClips = sceneGltf.animations || [];
-      if (!modelScene) {
-        console.error("GLB animation viewer: model scene missing");
-        return;
-      }
-
-      modelScene.traverse((child) => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-          if (child.material) {
-            const applyMaterial = (material) => {
-              material.side = THREE.DoubleSide;
-              material.depthWrite = true;
-              material.needsUpdate = true;
-            };
-            if (Array.isArray(child.material)) {
-              child.material.forEach(applyMaterial);
-            } else {
-              applyMaterial(child.material);
-            }
-          }
-        }
-      });
-
-      scene.add(modelScene);
-
-      const box = new THREE.Box3().setFromObject(modelScene);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      const maxSize = Math.max(size.x, size.y, size.z, 0.01);
-
-      modelScene.position.sub(center);
-      modelScene.scale.setScalar((1 / maxSize) * 1.2);
-      modelScene.updateMatrixWorld(true);
-
-      const boundingSphere = box.getBoundingSphere(new THREE.Sphere());
-      const fitDistance = Math.max(boundingSphere.radius * 0.7, maxSize * 0.6);
-      camera.position.set(
-        fitDistance * 1.2,
-        fitDistance * 0.6,
-        fitDistance * 1.2,
-      );
-      camera.lookAt(0, 0, 0);
-      camera.near = Math.max(0.1, fitDistance * 0.01);
-      camera.far = Math.max(2000, fitDistance * 10);
-      camera.updateProjectionMatrix();
-      if (controlsRef.current) {
-        controlsRef.current.target.set(0, 0, 0);
-        controlsRef.current.minDistance = Math.max(0.01, maxSize * 0.05);
-        controlsRef.current.maxDistance = fitDistance * 6;
-        controlsRef.current.update();
-      }
-
-      const mixer = new THREE.AnimationMixer(modelScene);
-      mixerRef.current = mixer;
-      clockRef.current = new THREE.Clock();
-      elapsedTimeRef.current = 0;
-      onPlayTimeUpdate?.(0);
-
-      const animationNames = animationClips.map(
-        (clip, index) => clip.name || `Animation ${index + 1}`,
-      );
-
-      const actions = {};
-      animationClips.forEach((clip, index) => {
-        const name = animationNames[index];
-        const action = mixer.clipAction(clip);
-        action.loop = THREE.LoopRepeat;
-        action.enabled = true;
-        action.clampWhenFinished = true;
-        actions[name] = action;
-      });
-      actionsRef.current = actions;
-      onAvailableAnimations?.(animationNames);
-
-      const initialClipName =
-        (selectedAnimationName && actions[selectedAnimationName]
-          ? selectedAnimationName
-          : animationNames[0]) || null;
-      if (initialClipName && actions[initialClipName]) {
-        const initialAction = actions[initialClipName];
-        initialAction.reset();
-        initialAction.setEffectiveWeight(1);
-        initialAction.enabled = true;
-        initialAction.play();
-        initialAction.paused = animationState !== "playing";
-        activeActionRef.current = initialAction;
-      }
-
-      function resize() {
-        if (!rendererRef.current || !cameraRef.current || !containerRef.current)
-          return;
-        const rect = containerRef.current.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
-        const height = Math.max(1, Math.floor(rect.height));
-        rendererRef.current.setSize(width, height, false);
-        cameraRef.current.aspect = width / Math.max(height, 240);
-        cameraRef.current.updateProjectionMatrix();
-      }
-
-      function animate() {
-        rafRef.current = requestAnimationFrame(animate);
-        const delta = clockRef.current ? clockRef.current.getDelta() : 0;
-        if (mixerRef.current && clockRef.current) {
-          if (animationState === "playing") {
-            mixerRef.current.update(delta);
-            elapsedTimeRef.current += delta;
-            onPlayTimeUpdate?.(elapsedTimeRef.current);
-          } else if (animationState === "stopped") {
-            elapsedTimeRef.current = 0;
-            onPlayTimeUpdate?.(0);
-          }
-        }
-        if (controlsRef.current) {
-          controlsRef.current.update();
-        }
-        if (rendererRef.current && scene && camera) {
-          rendererRef.current.render(scene, camera);
-        }
-      }
-
-      window.addEventListener("resize", resize);
-      requestAnimationFrame(() => {
-        resize();
-        animate();
-      });
-
-      return () => {
-        cancelled = true;
-        window.removeEventListener("resize", resize);
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
-        if (controlsRef.current) controlsRef.current.dispose();
-        if (rendererRef.current) {
-          rendererRef.current.dispose();
-          container.removeChild(rendererRef.current.domElement);
-        }
-      };
-    }
-
-    let cleanup;
-    init().then((result) => {
-      cleanup = result;
-    });
-    return () => {
-      cancelled = true;
-      if (cleanup && typeof cleanup === "function") cleanup();
-    };
-  }, [src, onAvailableAnimations, onPlayTimeUpdate]);
-
-  useEffect(() => {
-    const actions = actionsRef.current;
-    if (!actions || Object.keys(actions).length === 0) return;
-
-    const nextClipName = selectedAnimationName || Object.keys(actions)[0];
-    const nextAction = actions[nextClipName];
-    if (!nextAction) return;
-
-    if (activeActionRef.current && activeActionRef.current !== nextAction) {
-      activeActionRef.current.stop();
-    }
-
-    nextAction.reset();
-    nextAction.setEffectiveWeight(1);
-    nextAction.enabled = true;
-    nextAction.play();
-    nextAction.paused = animationState !== "playing";
-    activeActionRef.current = nextAction;
-  }, [selectedAnimationName, animationState]);
-
-  useEffect(() => {
-    if (resetKey === undefined) return;
-    const active = activeActionRef.current;
-    if (!active) return;
-    active.reset();
-    active.play();
-    active.paused = animationState !== "playing";
-  }, [resetKey, animationState]);
-
-  return <div ref={containerRef} className="animation-viewer" />;
-}
-
 /**
  * Files tab props
  *
@@ -883,7 +80,7 @@ function GlbAnimationViewer({
  * @param {FilesTabProps} props - Component props
  * @returns {React.ReactNode} Rendered tab
  */
-export default function FilesTab({ item, section, onChange }) {
+export default function FilesTab({ item, section, onChange, onFileSelect }) {
   const { showToast } = useToast();
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -893,6 +90,31 @@ export default function FilesTab({ item, section, onChange }) {
     useState(null);
   // HDRI toggle for model previews (Free tier off, Pro tier can enable)
   const [useHDRI, setUseHDRI] = useState(false);
+  // View mode: 'grid' or 'list'
+  const [viewMode, setViewMode] = useState("grid");
+  // Search and sort state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOption, setSortOption] = useState("name-asc");
+  const [thumbnailSize, setThumbnailSize] = useState(150);
+  // Tags and favorites state
+  const [availableTags, setAvailableTags] = useState([]);
+  const [fileTags, setFileTags] = useState({});
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [favoriteFileIds, setFavoriteFileIds] = useState(new Set());
+  // Batch operations state
+  const [selectedFileIds, setSelectedFileIds] = useState(new Set());
+  // Saved searches state
+  const [savedSearches, setSavedSearches] = useState([]);
+
+  const handleFileClick = useCallback((file) => {
+    if (onFileSelect) {
+      onFileSelect(file.id);
+    }
+  }, [onFileSelect]);
+
+  const handlePreview = useCallback((file) => {
+    setPreviewFile(file);
+  }, []);
 
   const [animationState, setAnimationState] = useState("playing");
   const [availableAnimations, setAvailableAnimations] = useState([]);
@@ -907,6 +129,52 @@ export default function FilesTab({ item, section, onChange }) {
     () => item.files.filter((f) => f.section === section && f.is_current),
     [item.files, section],
   );
+
+  // Filter and sort files
+  const filteredAndSortedFiles = useMemo(() => {
+    let result = [...files];
+
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(f =>
+        f.original_name.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by favorites
+    if (showFavoritesOnly) {
+      result = result.filter(f => favoriteFileIds.has(f.id));
+    }
+
+    // Sort by selected option
+    const [sortField, sortOrder] = sortOption.split('-');
+    result.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortField) {
+        case 'name':
+          comparison = a.original_name.localeCompare(b.original_name);
+          break;
+        case 'date':
+          comparison = new Date(a.created_at) - new Date(b.created_at);
+          break;
+        case 'size':
+          comparison = (a.file_size || 0) - (b.file_size || 0);
+          break;
+        case 'type':
+          comparison = extOf(a.original_name).localeCompare(extOf(b.original_name));
+          break;
+        default:
+          comparison = 0;
+      }
+
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+    return result;
+  }, [files, searchQuery, sortOption, showFavoritesOnly, favoriteFileIds]);
+
   const imageFiles = useMemo(
     () => item.files.filter((f) => f.section === "Images" && f.is_current),
     [item.files],
@@ -992,6 +260,66 @@ export default function FilesTab({ item, section, onChange }) {
       setSelectedAnimationName(availableAnimations[0]);
     }
   }, [availableAnimations, selectedAnimationName]);
+
+  // Load available tags on mount
+  useEffect(() => {
+    async function loadTags() {
+      try {
+        const tags = await window.gameverse.assetTags.list();
+        setAvailableTags(tags);
+      } catch (err) {
+        console.error("Failed to load tags:", err);
+      }
+    }
+    loadTags();
+  }, []);
+
+  // Load favorites on mount
+  useEffect(() => {
+    async function loadFavorites() {
+      try {
+        const favorites = await window.gameverse.favorites.list();
+        const favIds = new Set(favorites.map(f => f.file_id));
+        setFavoriteFileIds(favIds);
+      } catch (err) {
+        console.error("Failed to load favorites:", err);
+      }
+    }
+    loadFavorites();
+  }, []);
+
+  // Load tags for current files
+  useEffect(() => {
+    async function loadFileTags() {
+      const tagsMap = {};
+      for (const file of files) {
+        try {
+          const fileTags = await window.gameverse.assetTags.getForFile(file.id);
+          tagsMap[file.id] = fileTags;
+        } catch (err) {
+          console.error(`Failed to load tags for file ${file.id}:`, err);
+          tagsMap[file.id] = [];
+        }
+      }
+      setFileTags(tagsMap);
+    }
+    if (files.length > 0) {
+      loadFileTags();
+    }
+  }, [files]);
+
+  // Load saved searches on mount
+  useEffect(() => {
+    async function loadSavedSearches() {
+      try {
+        const searches = await window.gameverse.savedSearches.list();
+        setSavedSearches(searches);
+      } catch (err) {
+        console.error("Failed to load saved searches:", err);
+      }
+    }
+    loadSavedSearches();
+  }, []);
 
   function playAnimation() {
     const viewer = modelViewerRef.current;
@@ -1103,144 +431,175 @@ export default function FilesTab({ item, section, onChange }) {
     }
   }
 
-  function renderPreview(file) {
-    const p = resolvedPaths[file.id];
-    console.log('renderPreview for file:', file.original_name, 'resolved path:', p);
-    if (!p) return <div className="file-card-preview">…</div>;
-    const ext = extOf(file.original_name);
-    const src = toGvfileUrl(p);
-    console.log('renderPreview src:', src, 'ext:', ext);
-
-    if (section === "Images" || IMAGE_EXTS.includes(ext)) {
-      if (!p) {
-        return (
-          <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '100%',
-              color: '#888',
-              fontSize: '12px'
-            }}>
-              Loading...
-            </div>
-          </div>
-        );
-      }
-      return (
-        <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
-          <img
-            src={src}
-            alt={file.original_name}
-            onError={(e) => {
-              console.error('Thumbnail load error:', file.original_name, src);
-              e.target.style.display = 'none';
-            }}
-          />
-        </div>
-      );
+  // Tag handlers
+  async function handleCreateTag(name, color) {
+    try {
+      const newTag = await window.gameverse.assetTags.create(name, color);
+      setAvailableTags(prev => [...prev, newTag]);
+      return newTag;
+    } catch (err) {
+      showToast(err.message || "Failed to create tag", "error");
+      return null;
     }
-    if (section === "Models" && (ext === ".glb" || ext === ".gltf")) {
-      return (
-        <div className="file-card-preview" onClick={() => {
-          console.log('[FilesTab] GLB file clicked:', file.original_name);
-          setPreviewFile(file);
-        }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              flexDirection: "column",
-              gap: "8px"
-            }}
-          >
-            <span style={{ fontSize: 28 }}>🧊</span>
-            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              3D Model
-            </span>
-          </div>
-        </div>
-      );
-    }
-    if (section === "Models" && ext === ".fbx") {
-      return (
-        <div className="file-card-preview" onClick={() => setPreviewFile(file)}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-            }}
-          >
-            <span style={{ fontSize: 28 }}>🧷</span>
-          </div>
-        </div>
-      );
-    }
-
-    if (section === "Audio") {
-      return (
-        <div
-          className="file-card-preview"
-          onClick={() => setPreviewFile(file)}
-          style={{ padding: 10, cursor: 'pointer' }}
-        >
-          <span style={{ fontSize: 28 }}>🔊</span>
-        </div>
-      );
-    }
-    if (section === "Animations") {
-      if (ext === ".glb" || ext === ".gltf") {
-        return (
-          <div
-            className="file-card-preview"
-            onClick={() => setPreviewFile(file)}
-          >
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                height: "100%",
-              }}
-            >
-              <div style={{ fontSize: 28 }}>🏃</div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Animation
-              </div>
-            </div>
-          </div>
-        );
-      }
-      return (
-        <div
-          className="file-card-preview"
-          onClick={() => setPreviewFile(file)}
-          style={{ padding: 10 }}
-        >
-          <span style={{ fontSize: 28 }}>🏃</span>
-        </div>
-      );
-    }
-    return (
-      <div className="file-card-preview">
-        <span style={{ fontSize: 28 }}>{sectionIcon(section)}</span>
-      </div>
-    );
   }
 
-  function renderReferenceImagePanel() {
-    if (imageFiles.length === 0) return null;
-    const selectedImage =
-      imageFiles.find((image) => image.id === selectedReferenceImageId) ||
-      imageFiles[0];
-    const selectedSrc = resolvedPaths[selectedImage?.id]
+  async function handleAddTagToFile(fileId, tagId) {
+    try {
+      await window.gameverse.assetTags.addToFile(fileId, tagId);
+      // Reload tags for this file
+      const updatedTags = await window.gameverse.assetTags.getForFile(fileId);
+      setFileTags(prev => ({ ...prev, [fileId]: updatedTags }));
+    } catch (err) {
+      showToast(err.message || "Failed to add tag", "error");
+    }
+  }
+
+  async function handleRemoveTagFromFile(fileId, tagId) {
+    try {
+      await window.gameverse.assetTags.removeFromFile(fileId, tagId);
+      // Reload tags for this file
+      const updatedTags = await window.gameverse.assetTags.getForFile(fileId);
+      setFileTags(prev => ({ ...prev, [fileId]: updatedTags }));
+    } catch (err) {
+      showToast(err.message || "Failed to remove tag", "error");
+    }
+  }
+
+  // Favorites handlers
+  async function handleToggleFavorite(fileId) {
+    try {
+      if (favoriteFileIds.has(fileId)) {
+        await window.gameverse.favorites.remove(fileId);
+        setFavoriteFileIds(prev => {
+          const next = new Set(prev);
+          next.delete(fileId);
+          return next;
+        });
+        showToast("Removed from favorites", "success");
+      } else {
+        await window.gameverse.favorites.add(fileId);
+        setFavoriteFileIds(prev => new Set(prev).add(fileId));
+        showToast("Added to favorites", "success");
+      }
+    } catch (err) {
+      showToast(err.message || "Failed to toggle favorite", "error");
+    }
+  }
+
+  // Batch operation handlers
+  function handleToggleFileSelection(fileId) {
+    setSelectedFileIds(prev => {
+      const next = new Set(prev);
+      if (next.has(fileId)) {
+        next.delete(fileId);
+      } else {
+        next.add(fileId);
+      }
+      return next;
+    });
+  }
+
+  function handleClearSelection() {
+    setSelectedFileIds(new Set());
+  }
+
+  async function handleBatchDelete() {
+    if (!confirm(`Delete ${selectedFileIds.size} file(s)? This cannot be undone.`)) return;
+
+    try {
+      for (const fileId of selectedFileIds) {
+        await window.gameverse.files.delete(fileId);
+      }
+      showToast(`Deleted ${selectedFileIds.size} file(s)`, "success");
+      setSelectedFileIds(new Set());
+      onChange && onChange();
+    } catch (err) {
+      showToast(err.message || "Batch delete failed", "error");
+    }
+  }
+
+  async function handleBatchAddToFavorites() {
+    try {
+      for (const fileId of selectedFileIds) {
+        if (!favoriteFileIds.has(fileId)) {
+          await window.gameverse.favorites.add(fileId);
+        }
+      }
+      setFavoriteFileIds(prev => new Set([...prev, ...selectedFileIds]));
+      showToast(`Added ${selectedFileIds.size} file(s) to favorites`, "success");
+    } catch (err) {
+      showToast(err.message || "Batch add to favorites failed", "error");
+    }
+  }
+
+  async function handleBatchRemoveFromFavorites() {
+    try {
+      for (const fileId of selectedFileIds) {
+        if (favoriteFileIds.has(fileId)) {
+          await window.gameverse.favorites.remove(fileId);
+        }
+      }
+      setFavoriteFileIds(prev => {
+        const next = new Set(prev);
+        selectedFileIds.forEach(id => next.delete(id));
+        return next;
+      });
+      showToast(`Removed ${selectedFileIds.size} file(s) from favorites`, "success");
+    } catch (err) {
+      showToast(err.message || "Batch remove from favorites failed", "error");
+    }
+  }
+
+  async function handleBatchAddTag(tagId) {
+    try {
+      for (const fileId of selectedFileIds) {
+        await window.gameverse.assetTags.addToFile(fileId, tagId);
+      }
+      // Reload tags for all selected files
+      const tagsMap = { ...fileTags };
+      for (const fileId of selectedFileIds) {
+        tagsMap[fileId] = await window.gameverse.assetTags.getForFile(fileId);
+      }
+      setFileTags(tagsMap);
+      showToast(`Added tag to ${selectedFileIds.size} file(s)`, "success");
+    } catch (err) {
+      showToast(err.message || "Batch add tag failed", "error");
+    }
+  }
+
+  // Saved search handlers
+  async function handleSaveSearch(name, filters, sortConfig) {
+    try {
+      await window.gameverse.savedSearches.create(name, filters, sortConfig);
+      const searches = await window.gameverse.savedSearches.list();
+      setSavedSearches(searches);
+      showToast("Search saved", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to save search", "error");
+    }
+  }
+
+  async function handleDeleteSearch(searchId) {
+    if (!confirm("Delete this saved search?")) return;
+    try {
+      await window.gameverse.savedSearches.delete(searchId);
+      const searches = await window.gameverse.savedSearches.list();
+      setSavedSearches(searches);
+      showToast("Search deleted", "success");
+    } catch (err) {
+      showToast(err.message || "Failed to delete search", "error");
+    }
+  }
+
+  function handleLoadSearch(filters, sortConfig) {
+    setSearchQuery(filters.searchQuery || "");
+    setShowFavoritesOnly(filters.showFavoritesOnly || false);
+    setSortOption(sortConfig || "name-asc");
+  }
+
+  function renderSelectedReferenceImagePanel() {
+    const selectedImage = imageFiles.find((img) => img.id === selectedReferenceImageId);
+    const selectedSrc = selectedImage && resolvedPaths[selectedImage.id]
       ? toGvfileUrl(resolvedPaths[selectedImage.id])
       : null;
 
@@ -1386,93 +745,74 @@ export default function FilesTab({ item, section, onChange }) {
 
   return (
     <div>
-      <div
-        className={`dropzone ${dragOver ? "drag-over" : ""}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
+      <AssetToolbar
+        section={section}
+        importing={importing}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        onImportCopy={() => handleImportDialog("copy")}
+        onImportLink={() => handleImportDialog("link")}
+        onImportDrag={handleDrop}
+        isDragOver={dragOver}
+        onDragOver={() => setDragOver(true)}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-      >
-        <div style={{ marginBottom: 10 }}>
-          Drag & drop {section.toLowerCase()} files here, or use a button below.
-        </div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => handleImportDialog("copy")}
-            disabled={importing}
-          >
-            {importing ? <span className="spinner" /> : "+ Import (Copy)"}
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => handleImportDialog("move")}
-            disabled={importing}
-          >
-            Move Into GameVerse
-          </button>
-          <button
-            className="btn btn-sm"
-            onClick={() => handleImportDialog("link")}
-            disabled={importing}
-          >
-            Link File (No Copy)
-          </button>
-        </div>
-        {section === "Models" && (
-          <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}>
-            <div style={{ marginTop: 8 }}>
-              <label>
-                <input type="checkbox" checked={useHDRI} onChange={() => setUseHDRI(prev => !prev)} /> Enable HDRI (Pro tier)
-              </label>
-            </div>
-            <p>Supported: BLEND, GLB, GLTF, FBX, OBJ, STL — GLB/GLTF get a live 3D preview.</p>
-            {/* */}
-          </div>
-        )}
-        {section === "Scripts" && (
-          <div
-            style={{ marginTop: 10, fontSize: 11, color: "var(--text-muted)" }}
-          >
-            Supported: GDScript, C#, Python, JSON, Shaders, Config files.
-          </div>
-        )}
-      </div>
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        sortOption={sortOption}
+        onSortChange={setSortOption}
+        thumbnailSize={thumbnailSize}
+        onThumbnailSizeChange={setThumbnailSize}
+        showFavoritesOnly={showFavoritesOnly}
+        onFavoritesToggle={() => setShowFavoritesOnly(prev => !prev)}
+        favoritesCount={files.filter(f => favoriteFileIds.has(f.id)).length}
+        savedSearches={savedSearches}
+        currentFilters={{ searchQuery, showFavoritesOnly }}
+        currentSort={sortOption}
+        onLoadSearch={handleLoadSearch}
+        onSaveSearch={handleSaveSearch}
+        onDeleteSearch={handleDeleteSearch}
+      />
 
-      {files.length === 0 ? (
+      <BatchToolbar
+        selectedCount={selectedFileIds.size}
+        onClearSelection={handleClearSelection}
+        onBatchDelete={handleBatchDelete}
+        onBatchAddTag={handleBatchAddTag}
+        onBatchAddToFavorites={handleBatchAddToFavorites}
+        onBatchRemoveFromFavorites={handleBatchRemoveFromFavorites}
+        availableTags={availableTags}
+      />
+
+      {filteredAndSortedFiles.length === 0 ? (
         <div className="empty-state">
-          <div>No {section.toLowerCase()} yet.</div>
+          <div>
+            {files.length === 0
+              ? `No ${section.toLowerCase()} yet.`
+              : `No files match "${searchQuery}".`}
+          </div>
         </div>
+      ) : viewMode === "grid" ? (
+        <AssetGrid
+          files={filteredAndSortedFiles}
+          resolvedPaths={resolvedPaths}
+          section={section}
+          onFileClick={handleFileClick}
+          onPreview={handlePreview}
+          thumbnailSize={thumbnailSize}
+          fileTags={fileTags}
+          favoriteFileIds={favoriteFileIds}
+          onToggleFavorite={handleToggleFavorite}
+          selectedFileIds={selectedFileIds}
+          onToggleSelection={handleToggleFileSelection}
+        />
       ) : (
-        <div className="file-grid">
-          {files.map((file) => (
-            <div className="file-card" key={file.id}>
-              {renderPreview(file)}
-              <div className="file-card-info">
-                <div className="file-card-name" title={file.original_name}>
-                  {file.original_name}
-                </div>
-                <div className="file-card-meta">
-                  <span>
-                    v{file.version}
-                    {file.is_linked ? " · linked" : ""}
-                  </span>
-                  <span>{(file.size_bytes / 1024).toFixed(0)} KB</span>
-                </div>
-              </div>
-              <div className="file-card-actions">
-                <button
-                  className="btn btn-sm btn-danger"
-                  onClick={() => handleDelete(file.id)}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <AssetList
+          files={filteredAndSortedFiles}
+          section={section}
+          onFileClick={handleFileClick}
+          onPreview={handlePreview}
+        />
       )}
 
       {olderVersions.length > 0 && (
@@ -1565,7 +905,7 @@ export default function FilesTab({ item, section, onChange }) {
                           <GlbViewer src={src} onClose={() => setPreviewFile(null)} />
                         </div>
                         <div style={{ flex: 1, height: '100%', minWidth: '300px' }}>
-                          {renderReferenceImagePanel()}
+                          {renderSelectedReferenceImagePanel()}
                         </div>
                       </div>
                     );
@@ -1573,7 +913,7 @@ export default function FilesTab({ item, section, onChange }) {
                   return (
                     <div className="preview-split">
                       {renderModelPreview(src, ext, useHDRI)}
-                      {renderReferenceImagePanel()}
+                      {renderSelectedReferenceImagePanel()}
                     </div>
                   );
                 }

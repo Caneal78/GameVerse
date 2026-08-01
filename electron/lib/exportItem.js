@@ -85,6 +85,28 @@ function exportItem(db, projectPath, itemId) {
   doc += `Category: ${item.category}\nStatus: ${item.status}\n`;
   doc += `Tags: ${tags.join(', ') || 'None'}\n\n`;
   if (item.summary) doc += `## Summary\n${item.summary}\n\n`;
+  
+  // Add file metadata section
+  if (files.length > 0) {
+    doc += `## Files\n\n`;
+    for (const file of files) {
+      doc += `### ${file.original_name}\n`;
+      doc += `- Section: ${file.section}\n`;
+      doc += `- Size: ${file.size_bytes} bytes\n`;
+      if (file.metadata) {
+        try {
+          const metadata = typeof file.metadata === 'string' ? JSON.parse(file.metadata) : file.metadata;
+          if (metadata.vertexCount) doc += `- Vertices: ${metadata.vertexCount.toLocaleString()}\n`;
+          if (metadata.faceCount) doc += `- Faces: ${metadata.faceCount.toLocaleString()}\n`;
+          if (metadata.format) doc += `- Format: ${metadata.format}\n`;
+        } catch (e) {
+          // Skip metadata parsing errors
+        }
+      }
+      doc += '\n';
+    }
+  }
+  
   if (fields.length) {
     doc += `## Fields\n`;
     for (const f of fields) doc += `- **${f.field_key}**: ${f.field_value}\n`;
@@ -182,6 +204,28 @@ function exportItemWithProgress(db, projectPath, itemId, onProgress) {
   doc += `Category: ${item.category}\nStatus: ${item.status}\n`;
   doc += `Tags: ${tags.join(', ') || 'None'}\n\n`;
   if (item.summary) doc += `## Summary\n${item.summary}\n\n`;
+  
+  // Add file metadata section
+  if (files.length > 0) {
+    doc += `## Files\n\n`;
+    for (const file of files) {
+      doc += `### ${file.original_name}\n`;
+      doc += `- Section: ${file.section}\n`;
+      doc += `- Size: ${file.size_bytes} bytes\n`;
+      if (file.metadata) {
+        try {
+          const metadata = typeof file.metadata === 'string' ? JSON.parse(file.metadata) : file.metadata;
+          if (metadata.vertexCount) doc += `- Vertices: ${metadata.vertexCount.toLocaleString()}\n`;
+          if (metadata.faceCount) doc += `- Faces: ${metadata.faceCount.toLocaleString()}\n`;
+          if (metadata.format) doc += `- Format: ${metadata.format}\n`;
+        } catch (e) {
+          // Skip metadata parsing errors
+        }
+      }
+      doc += '\n';
+    }
+  }
+  
   if (fields.length) {
     doc += `## Fields\n`;
     for (const f of fields) doc += `- **${f.field_key}**: ${f.field_value}\n`;
@@ -282,7 +326,8 @@ function exportCollection(db, projectPath, collectionId, onProgress) {
           relativePath: path.relative(exportRoot, destAbs),
           section: file.section,
           size: file.size_bytes,
-          mimeType: file.mime_type
+          mimeType: file.mime_type,
+          metadata: file.metadata ? JSON.parse(file.metadata) : {}
         });
       }
     }
@@ -304,6 +349,28 @@ function exportCollection(db, projectPath, collectionId, onProgress) {
     doc += `Category: ${item.category}\nStatus: ${item.status}\n`;
     doc += `Tags: ${tags.join(', ') || 'None'}\n\n`;
     if (item.summary) doc += `## Summary\n${item.summary}\n\n`;
+    
+    // Add file metadata section
+    if (files.length > 0) {
+      doc += `## Files\n\n`;
+      for (const file of files) {
+        doc += `### ${file.original_name}\n`;
+        doc += `- Section: ${file.section}\n`;
+        doc += `- Size: ${file.size_bytes} bytes\n`;
+        if (file.metadata) {
+          try {
+            const metadata = typeof file.metadata === 'string' ? JSON.parse(file.metadata) : file.metadata;
+            if (metadata.vertexCount) doc += `- Vertices: ${metadata.vertexCount.toLocaleString()}\n`;
+            if (metadata.faceCount) doc += `- Faces: ${metadata.faceCount.toLocaleString()}\n`;
+            if (metadata.format) doc += `- Format: ${metadata.format}\n`;
+          } catch (e) {
+            // Skip metadata parsing errors
+          }
+        }
+        doc += '\n';
+      }
+    }
+    
     if (fields.length) {
       doc += `## Fields\n`;
       for (const f of fields) doc += `- **${f.field_key}**: ${f.field_value}\n`;

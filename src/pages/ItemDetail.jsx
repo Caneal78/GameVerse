@@ -32,6 +32,11 @@ export default function ItemDetail() {
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
   const [launchingBlender, setLaunchingBlender] = useState(false);
   const [thumbSrc, setThumbSrc] = useState(null);
+  const [selectedFileId, setSelectedFileId] = useState(null);
+
+  const handleFileSelect = (fileId) => {
+    setSelectedFileId(fileId);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,7 +129,7 @@ export default function ItemDetail() {
   }
 
   return (
-    <Layout>
+    <Layout selectedFileId={selectedFileId}>
       <div className="item-detail-header">
         <button className="btn btn-ghost btn-sm" onClick={() => navigate(-1)}>
           ← Back
@@ -218,19 +223,19 @@ export default function ItemDetail() {
         {tab === "info" && <InfoTab item={item} onChange={load} />}
         {tab === "notebook" && <NotebookTab item={item} onChange={load} />}
         {tab === "images" && (
-          <FilesTab item={item} section="Images" onChange={load} />
+          <FilesTab item={item} section="Images" onChange={load} onFileSelect={handleFileSelect} />
         )}
         {tab === "audio" && (
-          <FilesTab item={item} section="Audio" onChange={load} />
+          <FilesTab item={item} section="Audio" onChange={load} onFileSelect={handleFileSelect} />
         )}
         {tab === "models" && (
-          <FilesTab item={item} section="Models" onChange={load} />
+          <FilesTab item={item} section="Models" onChange={load} onFileSelect={handleFileSelect} />
         )}
         {tab === "animations" && (
-          <FilesTab item={item} section="Animations" onChange={load} />
+          <FilesTab item={item} section="Animations" onChange={load} onFileSelect={handleFileSelect} />
         )}
         {tab === "scripts" && (
-          <FilesTab item={item} section="Scripts" onChange={load} />
+          <FilesTab item={item} section="Scripts" onChange={load} onFileSelect={handleFileSelect} />
         )}
         {tab === "links" && <LinksTab item={item} onChange={load} />}
       </div>

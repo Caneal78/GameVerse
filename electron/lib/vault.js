@@ -12,6 +12,7 @@ const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const { DEFAULT_TEMPLATES } = require("./schema");
 const { init: initSQLite, migrateFromJSON } = require("./db");
+const { runMigrations } = require("./migrations");
 
 /**
  * Standard folder structure for a GameVerse project vault
@@ -147,6 +148,15 @@ function openProject(targetPath) {
 
   // Initialize SQLite database
   const db = initSQLite(projectPath);
+
+  // Run any pending database migrations
+  try {
+    const migrationResult = runMigrations(db);
+    console.log('[Vault] Migration result:', migrationResult);
+  } catch (e) {
+    console.error('[Vault] Migration failed:', e);
+    // Don't fail project opening if migrations fail, but log the error
+  }
 
   // Get project name from meta table
   let projectName = path.basename(projectPath);
