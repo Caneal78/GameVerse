@@ -9,6 +9,7 @@
 
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import { ProjectProvider, useProject } from './context/ProjectContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
@@ -65,6 +66,7 @@ export default function App() {
           </Gate>
         </ProjectProvider>
       </ToastProvider>
+      <Analytics />
     </ErrorBoundary>
   );
 }
