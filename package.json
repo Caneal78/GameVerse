@@ -21,6 +21,7 @@
   "dependencies": {
     "@babylonjs/node-editor": "^7.0.0",
     "@google/model-viewer": "^4.3.1",
+    "@vercel/analytics": "^2.0.1",
     "archiver": "^7.0.1",
     "babylonjs": "^7.0.0",
     "better-sqlite3": "^13.0.1",
